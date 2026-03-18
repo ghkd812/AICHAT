@@ -43,7 +43,8 @@ st.markdown('<div class="chat-title">🤖 내 AI 챗봇</div>', unsafe_allow_htm
 # ---------------------------------
 # 경로 / 상수
 # ---------------------------------
-USERS_FILE = "users.json"
+def load_users():
+    return st.secrets.get("USERS", [])
 BASE_CHAT_DIR = "chats"
 os.makedirs(BASE_CHAT_DIR, exist_ok=True)
 
@@ -72,9 +73,8 @@ def hash_password(password: str) -> str:
 
 def verify_login(username: str, password: str) -> bool:
     users = load_users()
-    password_hash = hash_password(password)
     for user in users:
-        if user["username"] == username and user["password_hash"] == password_hash:
+        if user["username"] == username and user["password"] == password:
             return True
     return False
 
