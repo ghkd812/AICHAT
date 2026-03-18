@@ -395,6 +395,11 @@ if "last_result_df" not in st.session_state:
 if not st.session_state.logged_in:
     st.subheader("🔐 로그인")
 
+    st.write("USERS_FILE exists:", os.path.exists(USERS_FILE))
+    st.write("USERS_FILE path:", os.path.abspath(USERS_FILE))
+    st.write("loaded users:", load_users())
+
+
     login_username = st.text_input("아이디")
     login_password = st.text_input("비밀번호", type="password")
 
