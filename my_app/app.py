@@ -3,7 +3,6 @@ import io
 import json
 import re
 import base64
-import hashlib
 from datetime import datetime
 
 import pandas as pd
@@ -43,8 +42,6 @@ st.markdown('<div class="chat-title">🤖 내 AI 챗봇</div>', unsafe_allow_htm
 # ---------------------------------
 # 경로 / 상수
 # ---------------------------------
-def load_users():
-    return st.secrets.get("USERS", [])
 BASE_CHAT_DIR = "chats"
 os.makedirs(BASE_CHAT_DIR, exist_ok=True)
 
@@ -63,23 +60,29 @@ client = OpenAI(api_key=api_key)
 # 로그인 관련
 # ---------------------------------
 def load_users():
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
-
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    try:
+        users = st.secrets.get("USERS", [])
+        if not isinstance(users, list):
+            return []
+        return users
+    except Exception as e:
+        st.error(f"Secrets 읽기 오류: {e}")
+        return []
 
 def verify_login(username: str, password: str) -> bool:
     users = load_users()
+    username = str(username).strip()
+
     for user in users:
-        if user["username"] == username and user["password"] == password:
+        if (
+            str(user.get("username", "")).strip() == username
+            and str(user.get("password", "")) == password
+        ):
             return True
     return False
 
 def get_user_chat_dir():
-    username = st.session_state.get("username")
+    username = st.session_state.get("username", "guest")
     user_dir = os.path.join(BASE_CHAT_DIR, username)
     os.makedirs(user_dir, exist_ok=True)
     return user_dir
@@ -303,6 +306,10 @@ def save_chat(chat_id: str, data: dict):
 def list_chats():
     files = []
     user_dir = get_user_chat_dir()
+
+    if not os.path.exists(user_dir):
+        return []
+
     for name in os.listdir(user_dir):
         if name.endswith(".json"):
             files.append(name.replace(".json", ""))
@@ -407,7 +414,7 @@ if not st.session_state.logged_in:
         else:
             st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
 
-    st.info("users.json에 미리 계정을 등록해두면 됩니다.")
+    st.info("Streamlit Secrets에 USERS 계정을 등록해두면 됩니다.")
     st.stop()
 
 # ---------------------------------
@@ -471,9 +478,9 @@ with st.sidebar:
     st.divider()
     st.header("답변 설정")
 
-    model_options = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1","gpt-5.4"]
+    model_options = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1", "gpt-5.4"]
     if st.session_state.model_name not in model_options:
-        st.session_state.model_name = "gpt-4.1"
+        st.session_state.model_name = "gpt-4.1-mini"
 
     st.session_state.model_name = st.selectbox(
         "모델",
