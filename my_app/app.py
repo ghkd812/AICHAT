@@ -7,6 +7,7 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from docx import Document
 from openai import OpenAI
 from pypdf import PdfReader
@@ -33,6 +34,13 @@ section[data-testid="stSidebar"] {
     font-size: 2.2rem;
     font-weight: 800;
     margin-bottom: 1rem;
+}
+.preview-wrap {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 10px;
+    background: #fafafa;
+    margin-top: 8px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -270,6 +278,119 @@ def try_build_result_dataframe(full_text: str):
     return None
 
 # ---------------------------------
+# HTML/CSS/JS 코드 추출 + 미리보기
+# ---------------------------------
+def extract_code_blocks(text: str):
+    """
+    AI 답변에서 ```html```, ```css```, ```js``` 코드 블록 추출
+    """
+    result = {
+        "html": "",
+        "css": "",
+        "js": ""
+    }
+
+    if not text:
+        return result
+
+    matches = re.findall(r"```(\w+)?\s*(.*?)```", text, re.DOTALL)
+    for lang, code in matches:
+        lang = (lang or "").strip().lower()
+        code = code.strip()
+
+        if lang in ["html", "htm"]:
+            result["html"] += "\n" + code
+        elif lang == "css":
+            result["css"] += "\n" + code
+        elif lang in ["js", "javascript"]:
+            result["js"] += "\n" + code
+
+    return result
+
+def build_preview_html_from_response(text: str):
+    blocks = extract_code_blocks(text)
+
+    html_code = blocks["html"].strip()
+    css_code = blocks["css"].strip()
+    js_code = blocks["js"].strip()
+
+    if not html_code and not css_code and not js_code:
+        return None, blocks
+
+    # html 코드가 아예 없고 css만 있는 경우는 미리보기 불가
+    if not html_code:
+        return None, blocks
+
+    # html 문서 전체가 있으면 head/body에 css/js 삽입 시도
+    if "<html" in html_code.lower():
+        final_html = html_code
+
+        if css_code:
+            if "</head>" in final_html.lower():
+                final_html = re.sub(
+                    r"</head>",
+                    f"<style>\n{css_code}\n</style>\n</head>",
+                    final_html,
+                    flags=re.IGNORECASE
+                )
+            else:
+                final_html = f"<style>\n{css_code}\n</style>\n" + final_html
+
+        if js_code:
+            if "</body>" in final_html.lower():
+                final_html = re.sub(
+                    r"</body>",
+                    f"<script>\n{js_code}\n</script>\n</body>",
+                    final_html,
+                    flags=re.IGNORECASE
+                )
+            else:
+                final_html += f"\n<script>\n{js_code}\n</script>\n"
+
+        return final_html, blocks
+
+    # html 조각인 경우 자동으로 감싸기
+    final_html = f"""
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+body {{
+    font-family: Arial, sans-serif;
+    padding: 20px;
+    margin: 0;
+    background: #ffffff;
+}}
+{css_code}
+</style>
+</head>
+<body>
+{html_code}
+<script>
+{js_code}
+</script>
+</body>
+</html>
+"""
+    return final_html, blocks
+
+def should_show_preview(user_input: str, response_text: str) -> bool:
+    combined = f"{user_input}\n{response_text}".lower()
+
+    keywords = [
+        "html", "css", "js", "javascript",
+        "퍼블리싱", "마크업", "웹페이지", "랜딩페이지",
+        "코드", "미리보기", "화면 만들어", "ui 만들어"
+    ]
+
+    has_keyword = any(k in combined for k in keywords)
+    has_html_block = "```html" in response_text.lower()
+
+    return has_keyword or has_html_block
+
+# ---------------------------------
 # 대화 저장 함수
 # ---------------------------------
 def chat_path(chat_id: str) -> str:
@@ -371,6 +492,13 @@ def build_system_prompt(answer_length: str) -> str:
 확실하지 않은 값은 추정이라고 표시하거나 비워둘 수 있다.
 이미지 속 텍스트가 흐리거나 일부 가려져 있으면 보이는 범위 내에서만 답변한다.
 사용자가 표, 엑셀, 리스트, 정리본을 요청하면 가능하면 JSON 배열 또는 표 형태로 구조화해서 제공한다.
+
+사용자가 HTML/CSS/JS 코드 또는 웹 화면 마크업을 요청하면:
+- 가능하면 반드시 ```html``` / ```css``` / ```javascript``` 코드블록으로 나누어 제공한다.
+- HTML은 바로 브라우저에서 렌더 가능한 형태로 작성한다.
+- CSS가 있으면 별도 ```css``` 블록으로 준다.
+- 필요한 경우 간단한 JS도 ```javascript``` 블록으로 준다.
+
 {length_rule}
 """
 
@@ -394,6 +522,12 @@ if "model_name" not in st.session_state:
 
 if "last_result_df" not in st.session_state:
     st.session_state.last_result_df = None
+
+if "last_preview_html" not in st.session_state:
+    st.session_state.last_preview_html = None
+
+if "last_preview_blocks" not in st.session_state:
+    st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
 
 # ---------------------------------
 # 로그인 화면
@@ -437,6 +571,8 @@ with st.sidebar:
         st.session_state.username = None
         st.session_state.uploaded_files_cache = []
         st.session_state.last_result_df = None
+        st.session_state.last_preview_html = None
+        st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
         if "current_chat_id" in st.session_state:
             del st.session_state["current_chat_id"]
         st.rerun()
@@ -448,6 +584,8 @@ with st.sidebar:
         st.session_state.current_chat_id = create_new_chat()
         st.session_state.uploaded_files_cache = []
         st.session_state.last_result_df = None
+        st.session_state.last_preview_html = None
+        st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
         st.rerun()
 
     st.divider()
@@ -460,6 +598,8 @@ with st.sidebar:
                 st.session_state.current_chat_id = chat["id"]
                 st.session_state.uploaded_files_cache = []
                 st.session_state.last_result_df = None
+                st.session_state.last_preview_html = None
+                st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
                 st.rerun()
 
         with col2:
@@ -596,11 +736,33 @@ with st.expander("첨부 데이터 확인", expanded=False):
     st.write("image_inputs 개수:", len(image_inputs))
 
 # ---------------------------------
-# 대화 출력
+# 이전 대화 출력
 # ---------------------------------
 for msg in messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
+
+# ---------------------------------
+# 마지막 HTML 미리보기 재표시
+# ---------------------------------
+if st.session_state.last_preview_html:
+    st.subheader("🖥 HTML/CSS 미리보기")
+    components.html(st.session_state.last_preview_html, height=700, scrolling=True)
+
+    with st.expander("미리보기 코드 보기", expanded=False):
+        blocks = st.session_state.last_preview_blocks
+
+        if blocks.get("html"):
+            st.markdown("**HTML**")
+            st.code(blocks["html"], language="html")
+
+        if blocks.get("css"):
+            st.markdown("**CSS**")
+            st.code(blocks["css"], language="css")
+
+        if blocks.get("js"):
+            st.markdown("**JavaScript**")
+            st.code(blocks["js"], language="javascript")
 
 # ---------------------------------
 # 사용자 입력
@@ -673,6 +835,7 @@ if user_input:
         current_data["messages"] = messages
         save_chat(st.session_state.current_chat_id, current_data)
 
+        # 표 추출
         result_df = try_build_result_dataframe(full_text)
         st.session_state.last_result_df = result_df
 
@@ -688,3 +851,33 @@ if user_input:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key=f"download_ai_excel_{st.session_state.current_chat_id}"
             )
+
+        # HTML/CSS 미리보기
+        st.session_state.last_preview_html = None
+        st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
+
+        if should_show_preview(user_input, full_text):
+            preview_html, preview_blocks = build_preview_html_from_response(full_text)
+
+            if preview_html:
+                st.session_state.last_preview_html = preview_html
+                st.session_state.last_preview_blocks = preview_blocks
+
+                st.subheader("🖥 HTML/CSS 미리보기")
+                components.html(preview_html, height=700, scrolling=True)
+
+                with st.expander("미리보기 코드 보기", expanded=False):
+                    if preview_blocks.get("html"):
+                        st.markdown("**HTML**")
+                        st.code(preview_blocks["html"], language="html")
+
+                    if preview_blocks.get("css"):
+                        st.markdown("**CSS**")
+                        st.code(preview_blocks["css"], language="css")
+
+                    if preview_blocks.get("js"):
+                        st.markdown("**JavaScript**")
+                        st.code(preview_blocks["js"], language="javascript")
+            else:
+                if "```css" in full_text.lower() and "```html" not in full_text.lower():
+                    st.info("CSS 코드만 있어서 미리보기는 생략했습니다. HTML 코드까지 같이 있으면 바로 렌더됩니다.")
