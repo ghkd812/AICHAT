@@ -1,10 +1,6 @@
 [
   {
     "username": "admin",
-    "password_hash": "8934941b44467ec053ce994555a7dc86ad5bf963bb61f5305e556934b7e4c5a1"
-  },
-  {
-    "username": "admin_1",
-    "password_hash": "51429bee3e85882bbe4e17def75cb54af4d8efc3d9aeb0fac9b606c6d286fe44"
+    "password_hash": "12148b4fef115cad9698de254155abde41c38be16f97fc3d279e857636f29685"
   }
 ]
