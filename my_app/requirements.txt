@@ -8,5 +8,6 @@ openpyxl
 xlsxwriter
 xlrd
 
-pymongo[srv]==4.15.3
-dnspython==2.7.0
+pymongo[srv]==4.16.0
+dnspython>=2.6.1
+certifi
