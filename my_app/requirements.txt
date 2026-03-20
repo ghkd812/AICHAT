@@ -11,3 +11,4 @@ xlrd
 pymongo[srv]==4.16.0
 dnspython>=2.6.1
 certifi
+requests
