@@ -54,11 +54,23 @@ st.markdown('<div class="chat-title">🤖 내 AI 챗봇</div>', unsafe_allow_htm
 # ---------------------------------
 @st.cache_resource
 def get_db():
-    mongo_uri = os.getenv("MONGODB_URI") or st.secrets.get("MONGODB_URI")
-    mongo_db_name = os.getenv("MONGODB_DB") or st.secrets.get("MONGODB_DB", "my_ai_chatbot_prod")
+    mongo_uri = os.getenv("MONGODB_URI")
+    mongo_db_name = os.getenv("MONGODB_DB")
 
     if not mongo_uri:
-        st.error("MONGODB_URI가 없습니다. Streamlit secrets에 설정하세요.")
+        try:
+            mongo_uri = st.secrets["MONGODB_URI"]
+        except Exception:
+            mongo_uri = None
+
+    if not mongo_db_name:
+        try:
+            mongo_db_name = st.secrets["MONGODB_DB"]
+        except Exception:
+            mongo_db_name = "my_ai_chatbot_prod"
+
+    if not mongo_uri:
+        st.error("MONGODB_URI가 없습니다. 환경변수 또는 Streamlit secrets에 설정하세요.")
         st.stop()
 
     client = MongoClient(mongo_uri, server_api=ServerApi("1"))
@@ -79,7 +91,13 @@ init_mongo()
 # ---------------------------------
 # OpenAI
 # ---------------------------------
-api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
+api_key = os.getenv("OPENAI_API_KEY")
+
+if not api_key:
+    try:
+        api_key = st.secrets["OPENAI_API_KEY"]
+    except Exception:
+        api_key = None
 
 if not api_key:
     st.error("OPENAI_API_KEY가 없습니다. 환경변수 또는 Streamlit secrets에 설정하세요.")
@@ -91,14 +109,25 @@ client = OpenAI(api_key=api_key)
 # 로그인 관련
 # ---------------------------------
 def load_users():
+    # 1순위: Streamlit secrets
     try:
         users = st.secrets.get("USERS", [])
-        if not isinstance(users, list):
-            return []
-        return users
+        if isinstance(users, list) and len(users) > 0:
+            return users
+    except Exception:
+        pass
+
+    # 2순위: 로컬 users.json
+    try:
+        if os.path.exists("users.json"):
+            with open("users.json", "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
     except Exception as e:
-        st.error(f"Secrets 읽기 오류: {e}")
-        return []
+        st.warning(f"users.json 읽기 오류: {e}")
+
+    return []
 
 def verify_login(username: str, password: str) -> bool:
     users = load_users()
