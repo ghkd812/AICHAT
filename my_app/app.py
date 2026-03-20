@@ -12,6 +12,8 @@ from docx import Document
 from openai import OpenAI
 from pypdf import PdfReader
 from pptx import Presentation
+from pymongo import MongoClient
+from pymongo.server_api import ServerApi
 
 # ---------------------------------
 # 기본 설정
@@ -48,10 +50,31 @@ section[data-testid="stSidebar"] {
 st.markdown('<div class="chat-title">🤖 내 AI 챗봇</div>', unsafe_allow_html=True)
 
 # ---------------------------------
-# 경로 / 상수
+# MongoDB
 # ---------------------------------
-BASE_CHAT_DIR = "chats"
-os.makedirs(BASE_CHAT_DIR, exist_ok=True)
+@st.cache_resource
+def get_db():
+    mongo_uri = os.getenv("MONGODB_URI") or st.secrets.get("MONGODB_URI")
+    mongo_db_name = os.getenv("MONGODB_DB") or st.secrets.get("MONGODB_DB", "my_ai_chatbot_prod")
+
+    if not mongo_uri:
+        st.error("MONGODB_URI가 없습니다. Streamlit secrets에 설정하세요.")
+        st.stop()
+
+    client = MongoClient(mongo_uri, server_api=ServerApi("1"))
+    return client[mongo_db_name]
+
+def get_chats_col():
+    return get_db()["chats"]
+
+def init_mongo():
+    try:
+        get_chats_col().create_index([("username", 1), ("chat_id", 1)], unique=True)
+        get_chats_col().create_index([("username", 1), ("updated_at", -1)])
+    except Exception as e:
+        st.warning(f"MongoDB 인덱스 생성 경고: {e}")
+
+init_mongo()
 
 # ---------------------------------
 # OpenAI
@@ -88,12 +111,6 @@ def verify_login(username: str, password: str) -> bool:
         ):
             return True
     return False
-
-def get_user_chat_dir():
-    username = st.session_state.get("username", "guest")
-    user_dir = os.path.join(BASE_CHAT_DIR, username)
-    os.makedirs(user_dir, exist_ok=True)
-    return user_dir
 
 # ---------------------------------
 # 파일 읽기 함수
@@ -281,9 +298,6 @@ def try_build_result_dataframe(full_text: str):
 # HTML/CSS/JS 코드 추출 + 미리보기
 # ---------------------------------
 def extract_code_blocks(text: str):
-    """
-    AI 답변에서 ```html```, ```css```, ```js``` 코드 블록 추출
-    """
     result = {
         "html": "",
         "css": "",
@@ -317,11 +331,9 @@ def build_preview_html_from_response(text: str):
     if not html_code and not css_code and not js_code:
         return None, blocks
 
-    # html 코드가 아예 없고 css만 있는 경우는 미리보기 불가
     if not html_code:
         return None, blocks
 
-    # html 문서 전체가 있으면 head/body에 css/js 삽입 시도
     if "<html" in html_code.lower():
         final_html = html_code
 
@@ -349,7 +361,6 @@ def build_preview_html_from_response(text: str):
 
         return final_html, blocks
 
-    # html 조각인 경우 자동으로 감싸기
     final_html = f"""
 <!DOCTYPE html>
 <html lang="ko">
@@ -391,28 +402,9 @@ def should_show_preview(user_input: str, response_text: str) -> bool:
     return has_keyword or has_html_block
 
 # ---------------------------------
-# 대화 저장 함수
+# 대화 저장 함수 (MongoDB)
 # ---------------------------------
-def chat_path(chat_id: str) -> str:
-    return os.path.join(get_user_chat_dir(), f"{chat_id}.json")
-
-def create_new_chat():
-    chat_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    data = {
-        "title": "새 대화",
-        "messages": [
-            {"role": "assistant", "content": "안녕하세요! 무엇을 도와드릴까요?"}
-        ]
-    }
-    with open(chat_path(chat_id), "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    return chat_id
-
-def load_chat(chat_id: str):
-    path = chat_path(chat_id)
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+def get_default_chat_data():
     return {
         "title": "새 대화",
         "messages": [
@@ -420,38 +412,95 @@ def load_chat(chat_id: str):
         ]
     }
 
-def save_chat(chat_id: str, data: dict):
-    with open(chat_path(chat_id), "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def create_new_chat():
+    chat_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    username = st.session_state.get("username", "guest")
+    data = get_default_chat_data()
+
+    get_chats_col().insert_one({
+        "username": username,
+        "chat_id": chat_id,
+        "title": data["title"],
+        "messages": data["messages"],
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    })
+    return chat_id
+
+def load_chat(chat_id: str):
+    username = st.session_state.get("username", "guest")
+    doc = get_chats_col().find_one(
+        {"username": username, "chat_id": chat_id},
+        {"_id": 0, "title": 1, "messages": 1}
+    )
+
+    if doc:
+        return {
+            "title": doc.get("title", "새 대화"),
+            "messages": doc.get("messages", get_default_chat_data()["messages"])
+        }
+
+    return get_default_chat_data()
+
+def append_message(chat_id: str, role: str, content: str):
+    username = st.session_state.get("username", "guest")
+
+    get_chats_col().update_one(
+        {"username": username, "chat_id": chat_id},
+        {
+            "$push": {
+                "messages": {
+                    "role": role,
+                    "content": content
+                }
+            },
+            "$set": {
+                "updated_at": datetime.utcnow()
+            },
+            "$setOnInsert": {
+                "created_at": datetime.utcnow(),
+                "title": "새 대화"
+            }
+        },
+        upsert=True
+    )
+
+def update_chat_title(chat_id: str, title: str):
+    username = st.session_state.get("username", "guest")
+
+    get_chats_col().update_one(
+        {"username": username, "chat_id": chat_id},
+        {
+            "$set": {
+                "title": title,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
 
 def list_chats():
-    files = []
-    user_dir = get_user_chat_dir()
+    username = st.session_state.get("username", "guest")
 
-    if not os.path.exists(user_dir):
-        return []
-
-    for name in os.listdir(user_dir):
-        if name.endswith(".json"):
-            files.append(name.replace(".json", ""))
-    files.sort(reverse=True)
+    docs = list(
+        get_chats_col()
+        .find(
+            {"username": username},
+            {"_id": 0, "chat_id": 1, "title": 1, "updated_at": 1}
+        )
+        .sort("updated_at", -1)
+    )
 
     result = []
-    for chat_id in files:
-        try:
-            data = load_chat(chat_id)
-            result.append({
-                "id": chat_id,
-                "title": data.get("title", "제목 없음")
-            })
-        except Exception:
-            pass
+    for doc in docs:
+        result.append({
+            "id": doc["chat_id"],
+            "title": doc.get("title", "제목 없음")
+        })
     return result
 
 def delete_chat(chat_id: str):
-    path = chat_path(chat_id)
-    if os.path.exists(path):
-        os.remove(path)
+    username = st.session_state.get("username", "guest")
+    get_chats_col().delete_one({"username": username, "chat_id": chat_id})
 
 def make_title_from_messages(messages):
     for msg in messages:
@@ -770,13 +819,16 @@ if st.session_state.last_preview_html:
 user_input = st.chat_input("메시지를 입력하세요")
 
 if user_input:
+    chat_id = st.session_state.current_chat_id
+
     messages.append({"role": "user", "content": user_input})
 
     if current_data.get("title") in ["새 대화", "제목 없음"]:
-        current_data["title"] = make_title_from_messages(messages)
+        new_title = make_title_from_messages(messages)
+        current_data["title"] = new_title
+        update_chat_title(chat_id, new_title)
 
-    current_data["messages"] = messages
-    save_chat(st.session_state.current_chat_id, current_data)
+    append_message(chat_id, "user", user_input)
 
     with st.chat_message("user"):
         st.write(user_input)
@@ -832,10 +884,8 @@ if user_input:
             placeholder.error(full_text)
 
         messages.append({"role": "assistant", "content": full_text})
-        current_data["messages"] = messages
-        save_chat(st.session_state.current_chat_id, current_data)
+        append_message(chat_id, "assistant", full_text)
 
-        # 표 추출
         result_df = try_build_result_dataframe(full_text)
         st.session_state.last_result_df = result_df
 
@@ -852,7 +902,6 @@ if user_input:
                 key=f"download_ai_excel_{st.session_state.current_chat_id}"
             )
 
-        # HTML/CSS 미리보기
         st.session_state.last_preview_html = None
         st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
 
