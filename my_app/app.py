@@ -4,6 +4,7 @@ import json
 import re
 import base64
 from datetime import datetime
+import certifi
 
 import pandas as pd
 import streamlit as st
@@ -73,7 +74,14 @@ def get_db():
         st.error("MONGODB_URI가 없습니다. 환경변수 또는 Streamlit secrets에 설정하세요.")
         st.stop()
 
-    client = MongoClient(mongo_uri, server_api=ServerApi("1"))
+    client = MongoClient(
+        mongo_uri,
+        server_api=ServerApi("1"),
+        tls=True,
+        tlsCAFile=certifi.where(),
+        connectTimeoutMS=20000,
+        socketTimeoutMS=20000,
+    )
     return client[mongo_db_name]
 
 def get_chats_col():
