@@ -7,3 +7,6 @@ python-pptx
 openpyxl
 xlsxwriter
 xlrd
+
+pymongo[srv]==4.8.0
+dnspython==2.6.1
