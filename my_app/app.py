@@ -55,8 +55,9 @@ section[data-testid="stSidebar"] {
     padding: 14px 16px;
     border: 1px solid #e5e7eb;
     border-radius: 14px;
-    background: #fafafa;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
     margin-bottom: 10px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 .result-title {
     font-weight: 700;
@@ -73,6 +74,45 @@ section[data-testid="stSidebar"] {
 }
 .result-meta a:hover {
     text-decoration: underline;
+}
+.search-summary {
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid #dbeafe;
+    background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+    margin-bottom: 12px;
+}
+.search-badge {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    font-size: 0.8rem;
+    font-weight: 700;
+    margin-right: 0.35rem;
+    margin-bottom: 0.35rem;
+}
+.image-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    overflow: hidden;
+    background: #ffffff;
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+    margin-bottom: 14px;
+}
+.image-card-meta {
+    padding: 12px 14px 14px 14px;
+}
+.image-card-title {
+    font-weight: 700;
+    margin-bottom: 4px;
+    line-height: 1.4;
+}
+.image-card-sub {
+    color: #64748b;
+    font-size: 0.88rem;
+    margin-bottom: 8px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -492,29 +532,63 @@ def should_search_web(query: str) -> bool:
         "근처", "어디", "추천", "여행", "여행지", "가볼만한 곳",
         "가격", "얼마", "출시", "일정", "오픈", "영업시간",
         "주가", "환율", "날씨", "후기", "리뷰", "순위",
-        "뭐야", "왜", "어떻게", "정보", "찾아줘", "검색", "알려줘"
+        "뭐야", "왜", "어떻게", "정보", "찾아줘", "검색", "알려줘",
+        "비교", "베스트", "인기", "사진", "이미지"
     ]
     return any(k in query for k in keywords)
 
-def detect_search_mode(query: str) -> str:
+def build_search_plan(query: str) -> dict:
     q = query.lower()
 
-    naver_local_keywords = [
+    local_keywords = [
         "맛집", "식당", "카페", "술집", "브런치", "디저트",
         "여행지", "가볼만한 곳", "데이트", "근처", "장소", "어디",
-        "관광지", "볼거리", "놀거리"
+        "관광지", "볼거리", "놀거리", "숙소", "호텔"
     ]
-    latest_keywords = [
+    recency_keywords = [
         "뉴스", "최근", "최신", "오늘", "속보", "발표", "이슈",
         "논란", "동향", "주가", "환율", "날씨", "시세", "전망",
         "왜 떨어져", "왜 올랐", "무슨 일", "업데이트", "출시"
     ]
+    image_keywords = [
+        "사진", "이미지", "인테리어", "분위기", "외관", "메뉴", "비주얼"
+    ]
 
-    if any(k in q for k in naver_local_keywords):
-        return "naver_local"
-    if any(k in q for k in latest_keywords):
-        return "openai_web"
-    return "none"
+    use_local = any(k in q for k in local_keywords)
+    use_openai_web = any(k in q for k in recency_keywords)
+    wants_images = any(k in q for k in image_keywords) or use_local
+
+    use_naver_news = use_openai_web or "리뷰" in q or "후기" in q
+    use_naver_web = use_local or use_openai_web or "추천" in q or "비교" in q
+
+    mode_labels = []
+    if use_local:
+        mode_labels.append("네이버 로컬")
+    if use_naver_news:
+        mode_labels.append("네이버 뉴스")
+    if use_naver_web:
+        mode_labels.append("네이버 웹")
+    if use_openai_web:
+        mode_labels.append("OpenAI 웹검색")
+    if wants_images:
+        mode_labels.append("네이버 이미지")
+
+    return {
+        "use_local": use_local,
+        "use_naver_news": use_naver_news,
+        "use_naver_web": use_naver_web,
+        "use_openai_web": use_openai_web,
+        "wants_images": wants_images,
+        "mode_labels": mode_labels or ["일반 응답"]
+    }
+
+def make_image_search_query(query: str) -> str:
+    q = query.strip()
+    if any(keyword in q for keyword in ["맛집", "식당", "카페", "브런치", "디저트"]):
+        return f"{q} 분위기 메뉴"
+    if any(keyword in q for keyword in ["여행", "여행지", "관광지", "호텔", "숙소"]):
+        return f"{q} 사진"
+    return q
 
 # ---------------------------------
 # 네이버 검색
@@ -609,6 +683,23 @@ def naver_image_search(query: str, display: int = 6):
     except Exception as e:
         return [{"error": f"네이버 이미지 검색 오류: {e}"}]
 
+def format_search_summary(search_plan: dict, naver_results: dict, openai_web_sources: list) -> str:
+    badges = "".join(
+        f'<span class="search-badge">{html.escape(label)}</span>'
+        for label in search_plan.get("mode_labels", [])
+    )
+    local_count = len([x for x in naver_results.get("local", []) if "error" not in x])
+    news_count = len([x for x in naver_results.get("news", []) if "error" not in x])
+    web_count = len([x for x in naver_results.get("web", []) if "error" not in x])
+    image_count = len([x for x in naver_results.get("image", []) if "error" not in x])
+    source_count = len(openai_web_sources)
+
+    lines = [
+        f"<div class='search-summary'><div><strong>검색 보강 모드</strong></div><div style='margin-top:8px'>{badges}</div>",
+        f"<div style='margin-top:10px; color:#475569; font-size:0.92rem;'>네이버 로컬 {local_count}건 · 뉴스 {news_count}건 · 웹 {web_count}건 · 이미지 {image_count}건 · OpenAI 출처 {source_count}건</div></div>"
+    ]
+    return "".join(lines)
+
 def format_naver_search_results(results, search_type="local") -> str:
     if not results:
         return "검색 결과 없음"
@@ -648,26 +739,30 @@ def render_naver_search_results(results, search_type="local"):
 
         if search_type == "local":
             link = safe_link(item.get("link", ""))
+            telephone = html.escape(item.get("telephone", "") or "정보 없음")
+            address = html.escape(item.get("roadAddress") or item.get("address", "") or "주소 정보 없음")
+            category = html.escape(item.get("category", "") or "카테고리 없음")
             body = f"""
             <div class="result-card">
                 <div class="result-title">{i}. {html.escape(item.get('title',''))}</div>
                 <div class="result-meta">
-                    카테고리: {html.escape(item.get('category',''))}<br>
-                    주소: {html.escape(item.get('roadAddress') or item.get('address',''))}<br>
-                    전화: {html.escape(item.get('telephone',''))}<br>
-                    {"<a href='" + link + "' target='_blank'>링크 열기</a>" if link else ""}
+                    <strong>카테고리</strong>: {category}<br>
+                    <strong>주소</strong>: {address}<br>
+                    <strong>전화</strong>: {telephone}<br>
+                    {"<a href='" + link + "' target='_blank'>상세 링크 열기</a>" if link else ""}
                 </div>
             </div>
             """
         else:
             raw_link = item.get("originallink") or item.get("link", "")
             link = safe_link(raw_link)
+            description = html.escape(item.get("description", "") or "설명 없음")
             body = f"""
             <div class="result-card">
                 <div class="result-title">{i}. {html.escape(item.get('title',''))}</div>
                 <div class="result-meta">
-                    요약: {html.escape(item.get('description',''))}<br>
-                    {"<a href='" + link + "' target='_blank'>링크 열기</a>" if link else ""}
+                    요약: {description}<br>
+                    {"<a href='" + link + "' target='_blank'>원문 열기</a>" if link else ""}
                 </div>
             </div>
             """
@@ -687,15 +782,25 @@ def render_image_results(image_results):
     if not valid_items:
         return
 
-    cols = st.columns(3)
+    cols = st.columns(2)
     for idx, item in enumerate(valid_items):
-        with cols[idx % 3]:
-            st.image(item["thumbnail"], use_container_width=True)
-            if item.get("title"):
-                st.caption(item["title"])
-            link = item.get("link", "")
-            if link:
-                st.markdown(f"[원본 보기]({link})")
+        with cols[idx % 2]:
+            with st.container(border=True):
+                st.image(item["thumbnail"], use_container_width=True)
+                width = item.get("sizewidth") or "-"
+                height = item.get("sizeheight") or "-"
+                st.markdown(
+                    f"""
+                    <div class="image-card-meta">
+                        <div class="image-card-title">{html.escape(item.get('title') or '이미지 결과')}</div>
+                        <div class="image-card-sub">썸네일 크기: {html.escape(str(width))} × {html.escape(str(height))}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                link = item.get("link", "")
+                if link:
+                    st.link_button("원본 보기", link, use_container_width=True)
 
 # ---------------------------------
 # OpenAI 웹검색
@@ -1134,7 +1239,7 @@ with st.sidebar:
         value=st.session_state.show_web_sources
     )
 
-    st.caption("국내 장소/맛집/이미지는 네이버, 최신 뉴스/웹정보는 OpenAI 웹검색을 사용합니다.")
+    st.caption("국내 장소/맛집/이미지는 네이버, 최신 뉴스/웹정보는 OpenAI 웹검색을 함께 사용합니다. 질문 성격에 따라 로컬·뉴스·웹문서·이미지를 자동 조합합니다.")
 
 # ---------------------------------
 # 현재 대화 로드
@@ -1286,10 +1391,9 @@ if user_input:
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_text = ""
-        naver_results = []
-        naver_image_results = []
+        naver_results_map = {"local": [], "news": [], "web": [], "image": []}
         openai_web_sources = []
-        selected_search_mode = "none"
+        search_plan = {"mode_labels": ["일반 응답"]}
 
         try:
             history_for_model = []
@@ -1306,7 +1410,7 @@ if user_input:
                 else:
                     do_search = True
 
-            selected_search_mode = detect_search_mode(user_input) if do_search else "none"
+            search_plan = build_search_plan(user_input) if do_search else {"mode_labels": ["일반 응답"]}
 
             user_text = f"""사용자 질문:
 {user_input}
@@ -1315,16 +1419,32 @@ if user_input:
 {file_context if file_context else "첨부된 파일 없음"}
 """
 
-            if selected_search_mode == "naver_local":
-                naver_results = naver_search(user_input, search_type="local", display=5)
-                naver_context = format_naver_search_results(naver_results, search_type="local")
+            if do_search and search_plan.get("use_local"):
+                naver_results_map["local"] = naver_search(user_input, search_type="local", display=5)
                 user_text += f"""
 
 네이버 장소 검색 결과:
-{naver_context}
+{format_naver_search_results(naver_results_map['local'], search_type='local')}
 """
-                if st.session_state.show_search_images:
-                    naver_image_results = naver_image_search(user_input, display=6)
+
+            if do_search and search_plan.get("use_naver_news"):
+                naver_results_map["news"] = naver_search(user_input, search_type="news", display=4)
+                user_text += f"""
+
+네이버 뉴스 검색 결과:
+{format_naver_search_results(naver_results_map['news'], search_type='news')}
+"""
+
+            if do_search and search_plan.get("use_naver_web"):
+                naver_results_map["web"] = naver_search(user_input, search_type="webkr", display=4)
+                user_text += f"""
+
+네이버 웹문서 검색 결과:
+{format_naver_search_results(naver_results_map['web'], search_type='webkr')}
+"""
+
+            if do_search and st.session_state.show_search_images and search_plan.get("wants_images"):
+                naver_results_map["image"] = naver_image_search(make_image_search_query(user_input), display=6)
 
             user_content = [
                 {
@@ -1336,7 +1456,7 @@ if user_input:
             if image_inputs:
                 user_content.extend(image_inputs)
 
-            if selected_search_mode == "openai_web":
+            if do_search and search_plan.get("use_openai_web"):
                 full_text, openai_web_sources = run_openai_web_search(
                     model_name=st.session_state.model_name,
                     instructions=build_system_prompt(st.session_state.answer_length),
@@ -1371,13 +1491,27 @@ if user_input:
         messages.append({"role": "assistant", "content": full_text})
         append_message(chat_id, "assistant", full_text)
 
-        if naver_results:
-            with st.expander("네이버 검색 결과 보기", expanded=False):
-                render_naver_search_results(naver_results, search_type="local")
+        if do_search:
+            st.markdown(
+                format_search_summary(search_plan, naver_results_map, openai_web_sources),
+                unsafe_allow_html=True
+            )
 
-        if naver_image_results:
-            with st.expander("관련 이미지 보기", expanded=False):
-                render_image_results(naver_image_results)
+        if naver_results_map["local"]:
+            with st.expander("네이버 장소 검색 결과 보기", expanded=False):
+                render_naver_search_results(naver_results_map["local"], search_type="local")
+
+        if naver_results_map["news"]:
+            with st.expander("네이버 뉴스 검색 결과 보기", expanded=False):
+                render_naver_search_results(naver_results_map["news"], search_type="news")
+
+        if naver_results_map["web"]:
+            with st.expander("네이버 웹문서 검색 결과 보기", expanded=False):
+                render_naver_search_results(naver_results_map["web"], search_type="webkr")
+
+        if naver_results_map["image"]:
+            with st.expander("관련 이미지 보기", expanded=True):
+                render_image_results(naver_results_map["image"])
 
         if openai_web_sources and st.session_state.show_web_sources:
             with st.expander("OpenAI 웹검색 출처 보기", expanded=False):
