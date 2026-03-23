@@ -3,7 +3,12 @@ import io
 import json
 import re
 import base64
+import toml
 from datetime import datetime
+from html import unescape
+from pathlib import Path
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 import certifi
 
 import pandas as pd
@@ -51,27 +56,80 @@ section[data-testid="stSidebar"] {
 st.markdown('<div class="chat-title">🤖 내 AI 챗봇</div>', unsafe_allow_html=True)
 
 # ---------------------------------
+# 로컬 secrets 로드
+# ---------------------------------
+SECRETS_FILE_CANDIDATES = [
+    Path(".streamlit/secrets.toml"),
+    Path("secrets.toml"),
+    Path(".streamlit/secrets.toml.example"),
+    Path("secrets.toml.example"),
+]
+
+@st.cache_data
+def load_local_secrets_file():
+    for path in SECRETS_FILE_CANDIDATES:
+        if not path.exists():
+            continue
+
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                data = toml.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception as e:
+            st.warning(f"{path} 읽기 오류: {e}")
+
+    return {}
+
+def get_secret_value(name: str, default=None):
+    value = os.getenv(name)
+    if value not in [None, ""]:
+        return value
+
+    try:
+        value = st.secrets[name]
+        if value not in [None, ""]:
+            return value
+    except Exception:
+        pass
+
+    local_secrets = load_local_secrets_file()
+    value = local_secrets.get(name)
+    if value not in [None, ""]:
+        return value
+
+    return default
+
+def get_secret_list(name: str, default=None):
+    if default is None:
+        default = []
+
+    try:
+        value = st.secrets.get(name, None)
+        if isinstance(value, list) and len(value) > 0:
+            return value
+    except Exception:
+        pass
+
+    local_secrets = load_local_secrets_file()
+    value = local_secrets.get(name)
+    if isinstance(value, list) and len(value) > 0:
+        return value
+
+    return default
+
+# ---------------------------------
 # MongoDB
 # ---------------------------------
 @st.cache_resource
 def get_db():
-    mongo_uri = os.getenv("MONGODB_URI")
-    mongo_db_name = os.getenv("MONGODB_DB")
+    mongo_uri = get_secret_value("MONGODB_URI")
+    mongo_db_name = get_secret_value("MONGODB_DB", "my_ai_chatbot_prod")
 
     if not mongo_uri:
-        try:
-            mongo_uri = st.secrets["MONGODB_URI"]
-        except Exception:
-            mongo_uri = None
-
-    if not mongo_db_name:
-        try:
-            mongo_db_name = st.secrets["MONGODB_DB"]
-        except Exception:
-            mongo_db_name = "my_ai_chatbot_prod"
-
-    if not mongo_uri:
-        st.error("MONGODB_URI가 없습니다. 환경변수 또는 Streamlit secrets에 설정하세요.")
+        st.error(
+            "MONGODB_URI가 없습니다. 환경변수, .streamlit/secrets.toml, secrets.toml(.example)에 설정하세요."
+        )
         st.stop()
 
     client = MongoClient(
@@ -99,31 +157,127 @@ init_mongo()
 # ---------------------------------
 # OpenAI
 # ---------------------------------
-api_key = os.getenv("OPENAI_API_KEY")
+api_key = get_secret_value("OPENAI_API_KEY")
 
 if not api_key:
-    try:
-        api_key = st.secrets["OPENAI_API_KEY"]
-    except Exception:
-        api_key = None
-
-if not api_key:
-    st.error("OPENAI_API_KEY가 없습니다. 환경변수 또는 Streamlit secrets에 설정하세요.")
+    st.error(
+        "OPENAI_API_KEY가 없습니다. 환경변수, .streamlit/secrets.toml, secrets.toml(.example)에 설정하세요."
+    )
     st.stop()
 
 client = OpenAI(api_key=api_key)
+
+NAVER_CLIENT_ID = get_secret_value("NAVER_SEARCH_CLIENT_ID")
+NAVER_CLIENT_SECRET = get_secret_value("NAVER_SEARCH_CLIENT_SECRET")
+
+# ---------------------------------
+# 검색 기능
+# ---------------------------------
+def clean_naver_html(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = re.sub(r"<[^>]+>", "", text)
+    return unescape(cleaned).strip()
+
+def search_naver(query: str, search_type: str = "news", display: int = 5):
+    if not NAVER_CLIENT_ID or not NAVER_CLIENT_SECRET:
+        raise RuntimeError(
+            "네이버 검색을 사용하려면 NAVER_SEARCH_CLIENT_ID / NAVER_SEARCH_CLIENT_SECRET 설정이 필요합니다."
+        )
+
+    encoded_query = quote(query)
+    url = (
+        f"https://openapi.naver.com/v1/search/{search_type}.json"
+        f"?query={encoded_query}&display={display}&sort=sim"
+    )
+    request = Request(url)
+    request.add_header("X-Naver-Client-Id", NAVER_CLIENT_ID)
+    request.add_header("X-Naver-Client-Secret", NAVER_CLIENT_SECRET)
+
+    with urlopen(request, timeout=20) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    items = []
+    for item in payload.get("items", []):
+        items.append({
+            "title": clean_naver_html(item.get("title", "")),
+            "description": clean_naver_html(item.get("description", "")),
+            "link": item.get("link", ""),
+            "bloggername": item.get("bloggername", ""),
+            "postdate": item.get("postdate", ""),
+            "pubDate": item.get("pubDate", ""),
+        })
+
+    return {
+        "query": query,
+        "search_type": search_type,
+        "total": payload.get("total", 0),
+        "items": items,
+    }
+
+def format_naver_results_for_prompt(results: dict) -> str:
+    if not results or not results.get("items"):
+        return "검색 결과 없음"
+
+    lines = [
+        f"네이버 검색 타입: {results.get('search_type', '')}",
+        f"검색어: {results.get('query', '')}",
+    ]
+
+    for idx, item in enumerate(results["items"], start=1):
+        lines.append(f"[{idx}] 제목: {item.get('title', '')}")
+        if item.get("description"):
+            lines.append(f"설명: {item['description']}")
+        if item.get("pubDate"):
+            lines.append(f"발행일: {item['pubDate']}")
+        if item.get("postdate"):
+            lines.append(f"게시일: {item['postdate']}")
+        if item.get("bloggername"):
+            lines.append(f"작성자: {item['bloggername']}")
+        if item.get("link"):
+            lines.append(f"링크: {item['link']}")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+def render_naver_results(results: dict):
+    if not results:
+        return
+
+    items = results.get("items", [])
+    if not items:
+        st.info("네이버 검색 결과가 없습니다.")
+        return
+
+    with st.expander("🔎 네이버 검색 결과", expanded=True):
+        st.caption(
+            f"검색어: {results.get('query', '')} / 타입: {results.get('search_type', '')} / 표시 결과: {len(items)}개"
+        )
+        for idx, item in enumerate(items, start=1):
+            st.markdown(f"**{idx}. {item.get('title', '제목 없음')}**")
+            meta = []
+            if item.get("bloggername"):
+                meta.append(item["bloggername"])
+            if item.get("pubDate"):
+                meta.append(item["pubDate"])
+            if item.get("postdate"):
+                meta.append(item["postdate"])
+            if meta:
+                st.caption(" / ".join(meta))
+            if item.get("description"):
+                st.write(item["description"])
+            if item.get("link"):
+                st.markdown(f"[원문 링크]({item['link']})")
+            st.divider()
 
 # ---------------------------------
 # 로그인 관련
 # ---------------------------------
 def load_users():
     # 1순위: Streamlit secrets
-    try:
-        users = st.secrets.get("USERS", [])
-        if isinstance(users, list) and len(users) > 0:
-            return users
-    except Exception:
-        pass
+    users = get_secret_list("USERS", [])
+    if isinstance(users, list) and len(users) > 0:
+        return users
 
     # 2순위: 로컬 users.json
     try:
@@ -562,6 +716,7 @@ def build_system_prompt(answer_length: str) -> str:
 항상 한국어로 답변한다.
 모르는 내용은 추측하지 말고 불확실하다고 말한다.
 사용자가 파일을 첨부한 경우 첨부 내용을 우선 참고한다.
+사용자가 네이버 검색 결과가 함께 제공되면 해당 검색 결과를 참고해서 최신 정보를 보완한다.
 사용자가 이미지(여권, 비자, 신분증, 계약서, 문서 캡처 등)를 첨부하면 OCR 텍스트에 의존하지 말고 이미지 자체를 직접 판독해서 답변한다.
 
 이미지에서 특히 아래 정보가 있으면 정리한다.
@@ -614,6 +769,12 @@ if "last_preview_html" not in st.session_state:
 
 if "last_preview_blocks" not in st.session_state:
     st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
+
+if "search_mode" not in st.session_state:
+    st.session_state.search_mode = "기본 AI"
+
+if "naver_search_type" not in st.session_state:
+    st.session_state.naver_search_type = "news"
 
 # ---------------------------------
 # 로그인 화면
@@ -722,6 +883,31 @@ with st.sidebar:
         length_options,
         index=length_options.index(st.session_state.answer_length)
     )
+
+    search_mode_options = ["기본 AI", "OpenAI 웹 검색", "네이버 검색 + AI", "네이버 + OpenAI 웹 검색"]
+    if st.session_state.search_mode not in search_mode_options:
+        st.session_state.search_mode = "기본 AI"
+
+    st.session_state.search_mode = st.selectbox(
+        "검색 모드",
+        search_mode_options,
+        index=search_mode_options.index(st.session_state.search_mode),
+        help="기본 답변만 할지, OpenAI 웹 검색 또는 네이버 검색 결과를 함께 사용할지 선택합니다."
+    )
+
+    naver_search_options = ["news", "webkr", "blog"]
+    if st.session_state.naver_search_type not in naver_search_options:
+        st.session_state.naver_search_type = "news"
+
+    st.session_state.naver_search_type = st.selectbox(
+        "네이버 검색 타입",
+        naver_search_options,
+        index=naver_search_options.index(st.session_state.naver_search_type),
+        help="네이버 Open API 검색 대상입니다. news=뉴스, webkr=웹문서, blog=블로그"
+    )
+
+    if "네이버" in st.session_state.search_mode and (not NAVER_CLIENT_ID or not NAVER_CLIENT_SECRET):
+        st.warning("네이버 검색을 쓰려면 NAVER_SEARCH_CLIENT_ID / NAVER_SEARCH_CLIENT_SECRET 설정이 필요합니다.")
 
 # ---------------------------------
 # 현재 대화 로드
@@ -882,6 +1068,22 @@ if user_input:
                     "content": msg["content"]
                 })
 
+            search_mode = st.session_state.search_mode
+            use_openai_web_search = search_mode in ["OpenAI 웹 검색", "네이버 + OpenAI 웹 검색"]
+            use_naver_search = search_mode in ["네이버 검색 + AI", "네이버 + OpenAI 웹 검색"]
+
+            naver_results = None
+            naver_prompt_context = "사용 안 함"
+
+            if use_naver_search:
+                naver_results = search_naver(
+                    user_input,
+                    search_type=st.session_state.naver_search_type,
+                    display=5
+                )
+                naver_prompt_context = format_naver_results_for_prompt(naver_results)
+                render_naver_results(naver_results)
+
             user_content = [
                 {
                     "type": "input_text",
@@ -890,6 +1092,9 @@ if user_input:
 
 첨부 파일 내용:
 {file_context if file_context else "첨부된 파일 없음"}
+
+네이버 검색 결과:
+{naver_prompt_context}
 """
                 }
             ]
@@ -897,15 +1102,30 @@ if user_input:
             if image_inputs:
                 user_content.extend(image_inputs)
 
-            stream = client.responses.create(
-                model=st.session_state.model_name,
-                input=[
+            request_kwargs = {
+                "model": st.session_state.model_name,
+                "input": [
                     {"role": "system", "content": build_system_prompt(st.session_state.answer_length)},
                     *history_for_model,
                     {"role": "user", "content": user_content}
                 ],
-                stream=True
-            )
+                "stream": True,
+            }
+
+            if use_openai_web_search:
+                request_kwargs["tools"] = [
+                    {
+                        "type": "web_search_preview",
+                        "search_context_size": "medium",
+                        "user_location": {
+                            "type": "approximate",
+                            "country": "KR",
+                            "timezone": "Asia/Seoul",
+                        },
+                    }
+                ]
+
+            stream = client.responses.create(**request_kwargs)
 
             for event in stream:
                 if event.type == "response.output_text.delta":
