@@ -1,14 +1,15 @@
+%%writefile app.py
 import os
 import io
 import json
 import re
 import base64
 from datetime import datetime
-import certifi
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
+import html
+import requests
 from docx import Document
 from openai import OpenAI
 from pypdf import PdfReader
@@ -37,18 +38,43 @@ section[data-testid="stSidebar"] {
     font-size: 2.2rem;
     font-weight: 800;
     margin-bottom: 1rem;
+    line-height: 1.35;
+    white-space: normal !important;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
 }
-.preview-wrap {
+.result-card {
+    padding: 14px 16px;
     border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 10px;
+    border-radius: 14px;
     background: #fafafa;
-    margin-top: 8px;
+    margin-bottom: 10px;
+}
+.result-title {
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+.result-meta {
+    color: #555;
+    font-size: 0.95rem;
+    line-height: 1.55;
+}
+.result-meta a {
+    color: #2563eb;
+    text-decoration: none;
+}
+.result-meta a:hover {
+    text-decoration: underline;
 }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="chat-title">🤖 내 AI 챗봇</div>', unsafe_allow_html=True)
+
+# ---------------------------------
+# 상수
+# ---------------------------------
+USERS_FILE = "users.json"
 
 # ---------------------------------
 # MongoDB
@@ -74,21 +100,18 @@ def get_db():
         st.error("MONGODB_URI가 없습니다. 환경변수 또는 Streamlit secrets에 설정하세요.")
         st.stop()
 
-    client = MongoClient(
-        mongo_uri,
-        server_api=ServerApi("1"),
-        tls=True,
-        tlsCAFile=certifi.where(),
-        connectTimeoutMS=20000,
-        socketTimeoutMS=20000,
-    )
+    client = MongoClient(mongo_uri, server_api=ServerApi("1"))
     return client[mongo_db_name]
+
+def get_users_col():
+    return get_db()["users"]
 
 def get_chats_col():
     return get_db()["chats"]
 
 def init_mongo():
     try:
+        get_users_col().create_index("username", unique=True)
         get_chats_col().create_index([("username", 1), ("chat_id", 1)], unique=True)
         get_chats_col().create_index([("username", 1), ("updated_at", -1)])
     except Exception as e:
@@ -97,27 +120,66 @@ def init_mongo():
 init_mongo()
 
 # ---------------------------------
-# OpenAI
+# OpenAI / Naver
 # ---------------------------------
-api_key = os.getenv("OPENAI_API_KEY")
+try:
+    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+except Exception:
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
-if not api_key:
-    try:
-        api_key = st.secrets["OPENAI_API_KEY"]
-    except Exception:
-        api_key = None
+try:
+    NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
+    NAVER_CLIENT_SECRET = st.secrets["NAVER_CLIENT_SECRET"]
+except Exception:
+    NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID", "")
+    NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET", "")
 
-if not api_key:
-    st.error("OPENAI_API_KEY가 없습니다. 환경변수 또는 Streamlit secrets에 설정하세요.")
+if not OPENAI_API_KEY:
+    st.error("OPENAI_API_KEY가 설정되지 않았습니다.")
     st.stop()
 
-client = OpenAI(api_key=api_key)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ---------------------------------
 # 로그인 관련
 # ---------------------------------
+def migrate_users_json_to_mongo():
+    col = get_users_col()
+
+    if col.count_documents({}) > 0:
+        return
+
+    try:
+        if os.path.exists(USERS_FILE):
+            with open(USERS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            if isinstance(data, list):
+                for user in data:
+                    username = str(user.get("username", "")).strip()
+                    password = str(user.get("password", ""))
+
+                    if username:
+                        col.update_one(
+                            {"username": username},
+                            {
+                                "$set": {
+                                    "username": username,
+                                    "password": password,
+                                    "updated_at": datetime.utcnow()
+                                },
+                                "$setOnInsert": {
+                                    "created_at": datetime.utcnow()
+                                }
+                            },
+                            upsert=True
+                        )
+    except Exception as e:
+        st.warning(f"users.json → MongoDB 이관 실패: {e}")
+
+migrate_users_json_to_mongo()
+
 def load_users():
-    # 1순위: Streamlit secrets
     try:
         users = st.secrets.get("USERS", [])
         if isinstance(users, list) and len(users) > 0:
@@ -125,7 +187,6 @@ def load_users():
     except Exception:
         pass
 
-    # 2순위: 로컬 users.json
     try:
         if os.path.exists("users.json"):
             with open("users.json", "r", encoding="utf-8") as f:
@@ -138,9 +199,20 @@ def load_users():
     return []
 
 def verify_login(username: str, password: str) -> bool:
-    users = load_users()
     username = str(username).strip()
+    password = str(password)
 
+    try:
+        user = get_users_col().find_one(
+            {"username": username, "password": password},
+            {"_id": 0, "username": 1}
+        )
+        if user:
+            return True
+    except Exception as e:
+        st.warning(f"MongoDB 로그인 확인 오류: {e}")
+
+    users = load_users()
     for user in users:
         if (
             str(user.get("username", "")).strip() == username
@@ -332,111 +404,345 @@ def try_build_result_dataframe(full_text: str):
     return None
 
 # ---------------------------------
-# HTML/CSS/JS 코드 추출 + 미리보기
+# 검색 유틸
 # ---------------------------------
-def extract_code_blocks(text: str):
-    result = {
-        "html": "",
-        "css": "",
-        "js": ""
-    }
-
+def clean_html_text(text: str) -> str:
     if not text:
-        return result
+        return ""
+    text = re.sub(r"<[^>]+>", "", text)
+    return html.unescape(text).strip()
 
-    matches = re.findall(r"```(\w+)?\s*(.*?)```", text, re.DOTALL)
-    for lang, code in matches:
-        lang = (lang or "").strip().lower()
-        code = code.strip()
+def safe_link(url: str) -> str:
+    if not url:
+        return ""
+    return html.escape(url, quote=True)
 
-        if lang in ["html", "htm"]:
-            result["html"] += "\n" + code
-        elif lang == "css":
-            result["css"] += "\n" + code
-        elif lang in ["js", "javascript"]:
-            result["js"] += "\n" + code
+def detect_search_mode(query: str) -> str:
+    q = query.lower()
 
-    return result
-
-def build_preview_html_from_response(text: str):
-    blocks = extract_code_blocks(text)
-
-    html_code = blocks["html"].strip()
-    css_code = blocks["css"].strip()
-    js_code = blocks["js"].strip()
-
-    if not html_code and not css_code and not js_code:
-        return None, blocks
-
-    if not html_code:
-        return None, blocks
-
-    if "<html" in html_code.lower():
-        final_html = html_code
-
-        if css_code:
-            if "</head>" in final_html.lower():
-                final_html = re.sub(
-                    r"</head>",
-                    f"<style>\n{css_code}\n</style>\n</head>",
-                    final_html,
-                    flags=re.IGNORECASE
-                )
-            else:
-                final_html = f"<style>\n{css_code}\n</style>\n" + final_html
-
-        if js_code:
-            if "</body>" in final_html.lower():
-                final_html = re.sub(
-                    r"</body>",
-                    f"<script>\n{js_code}\n</script>\n</body>",
-                    final_html,
-                    flags=re.IGNORECASE
-                )
-            else:
-                final_html += f"\n<script>\n{js_code}\n</script>\n"
-
-        return final_html, blocks
-
-    final_html = f"""
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<style>
-body {{
-    font-family: Arial, sans-serif;
-    padding: 20px;
-    margin: 0;
-    background: #ffffff;
-}}
-{css_code}
-</style>
-</head>
-<body>
-{html_code}
-<script>
-{js_code}
-</script>
-</body>
-</html>
-"""
-    return final_html, blocks
-
-def should_show_preview(user_input: str, response_text: str) -> bool:
-    combined = f"{user_input}\n{response_text}".lower()
-
-    keywords = [
-        "html", "css", "js", "javascript",
-        "퍼블리싱", "마크업", "웹페이지", "랜딩페이지",
-        "코드", "미리보기", "화면 만들어", "ui 만들어"
+    naver_local_keywords = [
+        "맛집", "식당", "카페", "술집", "브런치", "디저트",
+        "여행지", "가볼만한 곳", "데이트", "근처", "장소", "어디",
+        "관광지", "볼거리", "놀거리"
+    ]
+    latest_keywords = [
+        "뉴스", "최근", "최신", "오늘", "속보", "발표", "이슈",
+        "논란", "동향", "주가", "환율", "날씨", "시세", "전망",
+        "왜 떨어져", "왜 올랐", "무슨 일", "업데이트", "출시"
     ]
 
-    has_keyword = any(k in combined for k in keywords)
-    has_html_block = "```html" in response_text.lower()
+    if any(k in q for k in naver_local_keywords):
+        return "naver_local"
+    if any(k in q for k in latest_keywords):
+        return "openai_web"
+    return "none"
 
-    return has_keyword or has_html_block
+def should_search_web(query: str) -> bool:
+    keywords = [
+        "최신", "최근", "오늘", "뉴스", "이슈", "발표", "동향",
+        "맛집", "카페", "식당", "술집", "브런치", "디저트",
+        "근처", "어디", "추천", "여행", "여행지", "가볼만한 곳",
+        "가격", "얼마", "출시", "일정", "오픈", "영업시간",
+        "주가", "환율", "날씨", "후기", "리뷰", "순위",
+        "뭐야", "왜", "어떻게", "정보", "찾아줘", "검색", "알려줘"
+    ]
+    return any(k in query for k in keywords)
+
+# ---------------------------------
+# 네이버 검색
+# ---------------------------------
+def naver_search(query: str, search_type: str = "local", display: int = 5):
+    if not NAVER_CLIENT_ID or not NAVER_CLIENT_SECRET:
+        return [{"error": "NAVER_CLIENT_ID / NAVER_CLIENT_SECRET 이 설정되지 않았습니다."}]
+
+    url_map = {
+        "webkr": "https://openapi.naver.com/v1/search/webkr.json",
+        "news": "https://openapi.naver.com/v1/search/news.json",
+        "blog": "https://openapi.naver.com/v1/search/blog.json",
+        "local": "https://openapi.naver.com/v1/search/local.json",
+    }
+
+    url = url_map.get(search_type, url_map["local"])
+    headers = {
+        "X-Naver-Client-Id": NAVER_CLIENT_ID,
+        "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
+    }
+    params = {
+        "query": query,
+        "display": display,
+        "start": 1,
+    }
+
+    if search_type == "local":
+        params["sort"] = "random"
+
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=15)
+        res.raise_for_status()
+        data = res.json()
+        items = data.get("items", [])
+
+        results = []
+        for item in items:
+            results.append({
+                "title": clean_html_text(item.get("title", "")),
+                "description": clean_html_text(item.get("description", "")),
+                "link": item.get("link", ""),
+                "originallink": item.get("originallink", ""),
+                "roadAddress": item.get("roadAddress", ""),
+                "address": item.get("address", ""),
+                "category": item.get("category", ""),
+                "telephone": item.get("telephone", ""),
+            })
+
+        if not results:
+            return [{"error": "검색 결과가 없습니다."}]
+        return results
+
+    except Exception as e:
+        return [{"error": f"네이버 검색 오류: {e}"}]
+
+def naver_image_search(query: str, display: int = 6):
+    if not NAVER_CLIENT_ID or not NAVER_CLIENT_SECRET:
+        return [{"error": "NAVER_CLIENT_ID / NAVER_CLIENT_SECRET 이 설정되지 않았습니다."}]
+
+    url = "https://openapi.naver.com/v1/search/image.json"
+    headers = {
+        "X-Naver-Client-Id": NAVER_CLIENT_ID,
+        "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
+    }
+    params = {
+        "query": query,
+        "display": display,
+        "start": 1,
+        "sort": "sim"
+    }
+
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=15)
+        res.raise_for_status()
+        data = res.json()
+        items = data.get("items", [])
+
+        results = []
+        for item in items:
+            results.append({
+                "title": clean_html_text(item.get("title", "")),
+                "link": item.get("link", ""),
+                "thumbnail": item.get("thumbnail", ""),
+                "sizeheight": item.get("sizeheight", ""),
+                "sizewidth": item.get("sizewidth", "")
+            })
+
+        if not results:
+            return [{"error": "이미지 검색 결과가 없습니다."}]
+        return results
+
+    except Exception as e:
+        return [{"error": f"네이버 이미지 검색 오류: {e}"}]
+
+def format_naver_search_results(results, search_type="local") -> str:
+    if not results:
+        return "검색 결과 없음"
+
+    lines = []
+    for i, item in enumerate(results, start=1):
+        if "error" in item:
+            lines.append(f"{i}. 오류: {item['error']}")
+            continue
+
+        if search_type == "local":
+            lines.append(
+                f"{i}. 제목: {item.get('title','')}\n"
+                f"   카테고리: {item.get('category','')}\n"
+                f"   주소: {item.get('roadAddress') or item.get('address','')}\n"
+                f"   전화: {item.get('telephone','')}\n"
+                f"   링크: {item.get('link','')}"
+            )
+        else:
+            lines.append(
+                f"{i}. 제목: {item.get('title','')}\n"
+                f"   요약: {item.get('description','')}\n"
+                f"   링크: {item.get('originallink') or item.get('link','')}"
+            )
+
+    return "\n\n".join(lines)
+
+def render_naver_search_results(results, search_type="local"):
+    if not results:
+        st.info("검색 결과가 없습니다.")
+        return
+
+    for i, item in enumerate(results, start=1):
+        if "error" in item:
+            st.warning(item["error"])
+            continue
+
+        if search_type == "local":
+            link = safe_link(item.get("link", ""))
+            body = f"""
+            <div class="result-card">
+                <div class="result-title">{i}. {html.escape(item.get('title',''))}</div>
+                <div class="result-meta">
+                    카테고리: {html.escape(item.get('category',''))}<br>
+                    주소: {html.escape(item.get('roadAddress') or item.get('address',''))}<br>
+                    전화: {html.escape(item.get('telephone',''))}<br>
+                    {"<a href='" + link + "' target='_blank'>링크 열기</a>" if link else ""}
+                </div>
+            </div>
+            """
+        else:
+            raw_link = item.get("originallink") or item.get("link", "")
+            link = safe_link(raw_link)
+            body = f"""
+            <div class="result-card">
+                <div class="result-title">{i}. {html.escape(item.get('title',''))}</div>
+                <div class="result-meta">
+                    요약: {html.escape(item.get('description',''))}<br>
+                    {"<a href='" + link + "' target='_blank'>링크 열기</a>" if link else ""}
+                </div>
+            </div>
+            """
+
+        st.markdown(body, unsafe_allow_html=True)
+
+def render_image_results(image_results):
+    if not image_results:
+        st.info("이미지 검색 결과가 없습니다.")
+        return
+
+    valid_items = [item for item in image_results if "error" not in item and item.get("thumbnail")]
+    error_items = [item for item in image_results if "error" in item]
+
+    for item in error_items:
+        st.warning(item["error"])
+
+    if not valid_items:
+        return
+
+    cols = st.columns(3)
+    for idx, item in enumerate(valid_items):
+        with cols[idx % 3]:
+            st.image(item["thumbnail"], use_container_width=True)
+            if item.get("title"):
+                st.caption(item["title"])
+            link = item.get("link", "")
+            if link:
+                st.markdown(f"[원본 보기]({link})")
+
+# ---------------------------------
+# OpenAI 웹검색
+# ---------------------------------
+def _to_dict(obj):
+    if obj is None:
+        return None
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, list):
+        return [_to_dict(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _to_dict(v) for k, v in obj.items()}
+    if hasattr(obj, "model_dump"):
+        return _to_dict(obj.model_dump())
+    if hasattr(obj, "dict"):
+        return _to_dict(obj.dict())
+    if hasattr(obj, "__dict__"):
+        return _to_dict(vars(obj))
+    return str(obj)
+
+def extract_openai_web_sources(response) -> list:
+    data = _to_dict(response)
+    output_items = data.get("output", []) if isinstance(data, dict) else []
+
+    sources = []
+    seen = set()
+
+    for item in output_items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "web_search_call":
+            action = item.get("action", {}) or {}
+            action_sources = action.get("sources", []) or []
+
+            for src in action_sources:
+                if not isinstance(src, dict):
+                    continue
+                url = src.get("url", "")
+                src_type = src.get("type", "")
+                if url and url not in seen:
+                    seen.add(url)
+                    sources.append({
+                        "type": src_type,
+                        "url": url
+                    })
+
+    return sources
+
+def render_openai_web_sources(sources: list):
+    if not sources:
+        st.info("웹검색 출처가 없습니다.")
+        return
+
+    for i, src in enumerate(sources, start=1):
+        url = src.get("url", "")
+        src_type = src.get("type", "")
+
+        st.markdown(
+            f"""
+            <div class="result-card">
+                <div class="result-title">{i}. 출처</div>
+                <div class="result-meta">
+                    유형: {html.escape(src_type)}<br>
+                    <a href="{html.escape(url, quote=True)}" target="_blank">링크 열기</a>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+def run_openai_web_search(model_name: str, instructions: str, history_for_model: list, user_content: list):
+    common_kwargs = dict(
+        model=model_name,
+        instructions=instructions,
+        input=[
+            *history_for_model,
+            {"role": "user", "content": user_content}
+        ],
+        tool_choice="auto",
+        include=["web_search_call.action.sources"]
+    )
+
+    try:
+        response = client.responses.create(
+            tools=[
+                {
+                    "type": "web_search",
+                    "search_context_size": "medium"
+                }
+            ],
+            **common_kwargs
+        )
+        return response.output_text, extract_openai_web_sources(response)
+
+    except Exception:
+        response = client.responses.create(
+            tools=[
+                {
+                    "type": "web_search_preview",
+                    "search_context_size": "medium",
+                    "search_content_types": ["text", "image"],
+                    "user_location": {
+                        "type": "approximate",
+                        "city": "Seoul",
+                        "country": "KR",
+                        "region": "Seoul",
+                        "timezone": "Asia/Seoul"
+                    }
+                }
+            ],
+            **common_kwargs
+        )
+        return response.output_text, extract_openai_web_sources(response)
 
 # ---------------------------------
 # 대화 저장 함수 (MongoDB)
@@ -504,7 +810,6 @@ def append_message(chat_id: str, role: str, content: str):
 
 def update_chat_title(chat_id: str, title: str):
     username = st.session_state.get("username", "guest")
-
     get_chats_col().update_one(
         {"username": username, "chat_id": chat_id},
         {
@@ -578,13 +883,9 @@ def build_system_prompt(answer_length: str) -> str:
 확실하지 않은 값은 추정이라고 표시하거나 비워둘 수 있다.
 이미지 속 텍스트가 흐리거나 일부 가려져 있으면 보이는 범위 내에서만 답변한다.
 사용자가 표, 엑셀, 리스트, 정리본을 요청하면 가능하면 JSON 배열 또는 표 형태로 구조화해서 제공한다.
-
-사용자가 HTML/CSS/JS 코드 또는 웹 화면 마크업을 요청하면:
-- 가능하면 반드시 ```html``` / ```css``` / ```javascript``` 코드블록으로 나누어 제공한다.
-- HTML은 바로 브라우저에서 렌더 가능한 형태로 작성한다.
-- CSS가 있으면 별도 ```css``` 블록으로 준다.
-- 필요한 경우 간단한 JS도 ```javascript``` 블록으로 준다.
-
+가능하면 표 형태나 JSON 형태로 정리한다.
+웹검색 결과가 함께 제공된 경우, 그 결과를 참고해서 답변하되 검색 결과에 없는 내용을 지어내지 않는다.
+관련 이미지 검색 결과가 함께 제공된 경우, 시각적으로 참고할 수 있다고만 생각하고 사실관계는 텍스트 검색 결과를 우선한다.
 {length_rule}
 """
 
@@ -593,27 +894,24 @@ def build_system_prompt(answer_length: str) -> str:
 # ---------------------------------
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-
 if "username" not in st.session_state:
     st.session_state.username = None
-
 if "uploaded_files_cache" not in st.session_state:
     st.session_state.uploaded_files_cache = []
-
 if "answer_length" not in st.session_state:
     st.session_state.answer_length = "보통"
-
 if "model_name" not in st.session_state:
     st.session_state.model_name = "gpt-4.1-mini"
-
 if "last_result_df" not in st.session_state:
     st.session_state.last_result_df = None
-
-if "last_preview_html" not in st.session_state:
-    st.session_state.last_preview_html = None
-
-if "last_preview_blocks" not in st.session_state:
-    st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
+if "use_web_search" not in st.session_state:
+    st.session_state.use_web_search = True
+if "auto_search_only" not in st.session_state:
+    st.session_state.auto_search_only = True
+if "show_search_images" not in st.session_state:
+    st.session_state.show_search_images = True
+if "show_web_sources" not in st.session_state:
+    st.session_state.show_web_sources = True
 
 # ---------------------------------
 # 로그인 화면
@@ -633,7 +931,7 @@ if not st.session_state.logged_in:
         else:
             st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
 
-    st.info("Streamlit Secrets에 USERS 계정을 등록해두면 됩니다.")
+    st.info("로컬은 MongoDB / users.json fallback, 배포는 MongoDB 또는 Streamlit secrets USERS를 사용할 수 있습니다.")
     st.stop()
 
 # ---------------------------------
@@ -657,8 +955,6 @@ with st.sidebar:
         st.session_state.username = None
         st.session_state.uploaded_files_cache = []
         st.session_state.last_result_df = None
-        st.session_state.last_preview_html = None
-        st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
         if "current_chat_id" in st.session_state:
             del st.session_state["current_chat_id"]
         st.rerun()
@@ -670,8 +966,6 @@ with st.sidebar:
         st.session_state.current_chat_id = create_new_chat()
         st.session_state.uploaded_files_cache = []
         st.session_state.last_result_df = None
-        st.session_state.last_preview_html = None
-        st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
         st.rerun()
 
     st.divider()
@@ -684,8 +978,6 @@ with st.sidebar:
                 st.session_state.current_chat_id = chat["id"]
                 st.session_state.uploaded_files_cache = []
                 st.session_state.last_result_df = None
-                st.session_state.last_preview_html = None
-                st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
                 st.rerun()
 
         with col2:
@@ -703,7 +995,7 @@ with st.sidebar:
     st.divider()
     st.header("답변 설정")
 
-    model_options = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1", "gpt-5.4"]
+    model_options = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1"]
     if st.session_state.model_name not in model_options:
         st.session_state.model_name = "gpt-4.1-mini"
 
@@ -722,6 +1014,31 @@ with st.sidebar:
         length_options,
         index=length_options.index(st.session_state.answer_length)
     )
+
+    st.divider()
+    st.header("검색 설정")
+
+    st.session_state.use_web_search = st.toggle(
+        "검색 사용",
+        value=st.session_state.use_web_search
+    )
+
+    st.session_state.auto_search_only = st.toggle(
+        "검색 필요 질문만 자동검색",
+        value=st.session_state.auto_search_only
+    )
+
+    st.session_state.show_search_images = st.toggle(
+        "네이버 이미지 보기",
+        value=st.session_state.show_search_images
+    )
+
+    st.session_state.show_web_sources = st.toggle(
+        "OpenAI 웹 출처 보기",
+        value=st.session_state.show_web_sources
+    )
+
+    st.caption("국내 장소/맛집/이미지는 네이버, 최신 뉴스/웹정보는 OpenAI 웹검색을 사용합니다.")
 
 # ---------------------------------
 # 현재 대화 로드
@@ -822,33 +1139,11 @@ with st.expander("첨부 데이터 확인", expanded=False):
     st.write("image_inputs 개수:", len(image_inputs))
 
 # ---------------------------------
-# 이전 대화 출력
+# 대화 출력
 # ---------------------------------
 for msg in messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
-
-# ---------------------------------
-# 마지막 HTML 미리보기 재표시
-# ---------------------------------
-if st.session_state.last_preview_html:
-    st.subheader("🖥 HTML/CSS 미리보기")
-    components.html(st.session_state.last_preview_html, height=700, scrolling=True)
-
-    with st.expander("미리보기 코드 보기", expanded=False):
-        blocks = st.session_state.last_preview_blocks
-
-        if blocks.get("html"):
-            st.markdown("**HTML**")
-            st.code(blocks["html"], language="html")
-
-        if blocks.get("css"):
-            st.markdown("**CSS**")
-            st.code(blocks["css"], language="css")
-
-        if blocks.get("js"):
-            st.markdown("**JavaScript**")
-            st.code(blocks["js"], language="javascript")
 
 # ---------------------------------
 # 사용자 입력
@@ -873,6 +1168,10 @@ if user_input:
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_text = ""
+        naver_results = []
+        naver_image_results = []
+        openai_web_sources = []
+        selected_search_mode = "none"
 
         try:
             history_for_model = []
@@ -882,39 +1181,68 @@ if user_input:
                     "content": msg["content"]
                 })
 
-            user_content = [
-                {
-                    "type": "input_text",
-                    "text": f"""사용자 질문:
+            do_search = False
+            if st.session_state.use_web_search:
+                if st.session_state.auto_search_only:
+                    do_search = should_search_web(user_input)
+                else:
+                    do_search = True
+
+            selected_search_mode = detect_search_mode(user_input) if do_search else "none"
+
+            user_text = f"""사용자 질문:
 {user_input}
 
 첨부 파일 내용:
 {file_context if file_context else "첨부된 파일 없음"}
 """
-                }
-            ]
 
+            # 네이버 로컬/이미지 검색
+            if selected_search_mode == "naver_local":
+                naver_results = naver_search(user_input, search_type="local", display=5)
+                naver_context = format_naver_search_results(naver_results, search_type="local")
+                user_text += f"""
+
+네이버 장소 검색 결과:
+{naver_context}
+"""
+                if st.session_state.show_search_images:
+                    naver_image_results = naver_image_search(user_input, display=6)
+
+            user_content = [{"type": "input_text", "text": user_text}]
             if image_inputs:
                 user_content.extend(image_inputs)
 
-            stream = client.responses.create(
-                model=st.session_state.model_name,
-                input=[
-                    {"role": "system", "content": build_system_prompt(st.session_state.answer_length)},
-                    *history_for_model,
-                    {"role": "user", "content": user_content}
-                ],
-                stream=True
-            )
+            # OpenAI 웹검색
+            if selected_search_mode == "openai_web":
+                full_text, openai_web_sources = run_openai_web_search(
+                    model_name=st.session_state.model_name,
+                    instructions=build_system_prompt(st.session_state.answer_length),
+                    history_for_model=history_for_model,
+                    user_content=user_content
+                )
+                placeholder.markdown(full_text)
 
-            for event in stream:
-                if event.type == "response.output_text.delta":
-                    full_text += event.delta
-                    placeholder.markdown(full_text + "▌")
-                elif event.type == "response.completed":
-                    break
+            # 네이버 검색 결과 포함 일반 응답
+            else:
+                stream = client.responses.create(
+                    model=st.session_state.model_name,
+                    input=[
+                        {"role": "system", "content": build_system_prompt(st.session_state.answer_length)},
+                        *history_for_model,
+                        {"role": "user", "content": user_content}
+                    ],
+                    stream=True
+                )
 
-            placeholder.markdown(full_text)
+                for event in stream:
+                    if event.type == "response.output_text.delta":
+                        full_text += event.delta
+                        placeholder.markdown(full_text + "▌")
+                    elif event.type == "response.completed":
+                        break
+
+                placeholder.markdown(full_text)
 
         except Exception as e:
             full_text = f"오류가 발생했습니다: {e}"
@@ -922,6 +1250,18 @@ if user_input:
 
         messages.append({"role": "assistant", "content": full_text})
         append_message(chat_id, "assistant", full_text)
+
+        if naver_results:
+            with st.expander("네이버 검색 결과 보기", expanded=False):
+                render_naver_search_results(naver_results, search_type="local")
+
+        if naver_image_results:
+            with st.expander("관련 이미지 보기", expanded=False):
+                render_image_results(naver_image_results)
+
+        if openai_web_sources and st.session_state.show_web_sources:
+            with st.expander("OpenAI 웹검색 출처 보기", expanded=False):
+                render_openai_web_sources(openai_web_sources)
 
         result_df = try_build_result_dataframe(full_text)
         st.session_state.last_result_df = result_df
@@ -938,32 +1278,3 @@ if user_input:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key=f"download_ai_excel_{st.session_state.current_chat_id}"
             )
-
-        st.session_state.last_preview_html = None
-        st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
-
-        if should_show_preview(user_input, full_text):
-            preview_html, preview_blocks = build_preview_html_from_response(full_text)
-
-            if preview_html:
-                st.session_state.last_preview_html = preview_html
-                st.session_state.last_preview_blocks = preview_blocks
-
-                st.subheader("🖥 HTML/CSS 미리보기")
-                components.html(preview_html, height=700, scrolling=True)
-
-                with st.expander("미리보기 코드 보기", expanded=False):
-                    if preview_blocks.get("html"):
-                        st.markdown("**HTML**")
-                        st.code(preview_blocks["html"], language="html")
-
-                    if preview_blocks.get("css"):
-                        st.markdown("**CSS**")
-                        st.code(preview_blocks["css"], language="css")
-
-                    if preview_blocks.get("js"):
-                        st.markdown("**JavaScript**")
-                        st.code(preview_blocks["js"], language="javascript")
-            else:
-                if "```css" in full_text.lower() and "```html" not in full_text.lower():
-                    st.info("CSS 코드만 있어서 미리보기는 생략했습니다. HTML 코드까지 같이 있으면 바로 렌더됩니다.")
