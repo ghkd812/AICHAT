@@ -1002,6 +1002,15 @@ def run_openai_web_search(model_name: str, instructions: str, history_for_model:
         )
         return response.output_text, extract_openai_web_sources(response)
 
+def get_default_runtime_state():
+    return {
+        "naver_results_map": {"local": [], "news": [], "web": [], "image": []},
+        "openai_web_sources": [],
+        "generated_images": [],
+        "search_plan": {"mode_labels": ["일반 응답"]},
+        "do_search": False,
+    }
+
 # ---------------------------------
 # 대화 저장 함수 (MongoDB)
 # ---------------------------------
@@ -1492,11 +1501,12 @@ if user_input:
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_text = ""
-        naver_results_map = {"local": [], "news": [], "web": [], "image": []}
-        openai_web_sources = []
-        generated_images = []
-        search_plan = {"mode_labels": ["일반 응답"]}
-        do_search = False
+        runtime_state = get_default_runtime_state()
+        naver_results_map = runtime_state["naver_results_map"]
+        openai_web_sources = runtime_state["openai_web_sources"]
+        generated_images = runtime_state["generated_images"]
+        search_plan = runtime_state["search_plan"]
+        do_search = runtime_state["do_search"]
 
         try:
             history_for_model = []
