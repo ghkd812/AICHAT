@@ -852,7 +852,7 @@ def render_image_results(image_results):
     if not valid_items:
         return
 
-    cols = st.columns(3)
+    cols = st.columns(2)
     for idx, item in enumerate(valid_items):
         with cols[idx % 3]:
             with st.container(border=True):
