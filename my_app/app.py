@@ -1572,23 +1572,31 @@ elif chat_payload is not None:
     user_input = chat_payload.text
     chat_input_files = list(chat_payload.files or [])
 
-if user_input:
+submitted_text = (user_input or "").strip()
+has_chat_submission = bool(submitted_text) or bool(chat_input_files)
+
+if has_chat_submission:
     if chat_input_files:
         st.session_state.uploaded_files_cache = chat_input_files
+        if not submitted_text:
+            st.info("클립보드/파일 첨부가 감지되었습니다. 이미지 내용을 분석해드릴게요.")
+
+    if not submitted_text:
+        submitted_text = "첨부한 파일(이미지/문서)을 분석해줘."
 
     chat_id = st.session_state.current_chat_id
 
-    messages.append({"role": "user", "content": user_input})
+    messages.append({"role": "user", "content": submitted_text})
 
     if current_data.get("title") in ["새 대화", "제목 없음"]:
         new_title = make_title_from_messages(messages)
         current_data["title"] = new_title
         update_chat_title(chat_id, new_title)
 
-    append_message(chat_id, "user", user_input)
+    append_message(chat_id, "user", submitted_text)
 
     with st.chat_message("user"):
-        st.write(user_input)
+        st.write(submitted_text)
 
     with st.chat_message("assistant"):
         placeholder = st.empty()
@@ -1610,9 +1618,9 @@ if user_input:
                     "content": msg["content"]
                 })
 
-            if is_image_generation_request(user_input):
-                image_prompt = get_image_generation_prompt(user_input)
-                image_spec = build_image_generation_spec(user_input, image_prompt)
+            if is_image_generation_request(submitted_text):
+                image_prompt = get_image_generation_prompt(submitted_text)
+                image_spec = build_image_generation_spec(submitted_text, image_prompt)
                 generated_images = generate_openai_image(
                     image_spec["prompt"],
                     size=image_spec["size"],
@@ -1636,21 +1644,21 @@ if user_input:
 
                 if st.session_state.use_web_search:
                     if st.session_state.auto_search_only:
-                        do_search = should_search_web(user_input)
+                        do_search = should_search_web(submitted_text)
                     else:
                         do_search = True
 
-                search_plan = build_search_plan(user_input) if do_search else {"mode_labels": ["일반 응답"]}
+                search_plan = build_search_plan(submitted_text) if do_search else {"mode_labels": ["일반 응답"]}
 
                 user_text = f"""사용자 질문:
-{user_input}
+{submitted_text}
 
 첨부 파일 내용:
 {file_context if file_context else "첨부된 파일 없음"}
 """
 
                 if do_search and search_plan.get("use_local"):
-                    naver_results_map["local"] = naver_search(user_input, search_type="local", display=5)
+                    naver_results_map["local"] = naver_search(submitted_text, search_type="local", display=5)
                     user_text += f"""
 
 네이버 장소 검색 결과:
@@ -1658,7 +1666,7 @@ if user_input:
 """
 
                 if do_search and search_plan.get("use_naver_news"):
-                    naver_results_map["news"] = naver_search(user_input, search_type="news", display=4)
+                    naver_results_map["news"] = naver_search(submitted_text, search_type="news", display=4)
                     user_text += f"""
 
 네이버 뉴스 검색 결과:
@@ -1666,7 +1674,7 @@ if user_input:
 """
 
                 if do_search and search_plan.get("use_naver_web"):
-                    naver_results_map["web"] = naver_search(user_input, search_type="webkr", display=4)
+                    naver_results_map["web"] = naver_search(submitted_text, search_type="webkr", display=4)
                     user_text += f"""
 
 네이버 웹문서 검색 결과:
@@ -1674,7 +1682,7 @@ if user_input:
 """
 
                 if do_search and st.session_state.show_search_images and search_plan.get("wants_images"):
-                    naver_results_map["image"] = naver_image_search(make_image_search_query(user_input), display=6)
+                    naver_results_map["image"] = naver_image_search(make_image_search_query(submitted_text), display=6)
                     user_text += f"""
 
 네이버 이미지 검색 결과:
@@ -1781,7 +1789,7 @@ if user_input:
         st.session_state.last_preview_html = None
         st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
 
-        if should_show_preview(user_input, full_text):
+        if should_show_preview(submitted_text, full_text):
             preview_html, preview_blocks = build_preview_html_from_response(full_text)
 
             if preview_html:
