@@ -592,9 +592,15 @@ def make_image_search_query(query: str) -> str:
 
 def should_generate_image(query: str) -> bool:
     q = query.lower().strip()
-    image_keywords = ["이미지", "사진", "그림", "일러스트", "포스터", "캐릭터", "배너", "썸네일", "로고"]
+    image_keywords = [
+        "이미지", "사진", "그림", "일러스트", "포스터", "캐릭터", "배너", "썸네일", "로고",
+        "메뉴", "메뉴판", "홍보물", "전단", "브로슈어", "쿠폰"
+    ]
     action_keywords = ["만들어줘", "만들어 줘", "생성", "제작", "만들기", "뽑아줘"]
-    direct_draw_keywords = ["그려줘", "그려 줘", "그림 그려", "일러스트", "포스터", "렌더링", "스케치"]
+    direct_draw_keywords = [
+        "그려줘", "그려 줘", "그림 그려", "일러스트", "포스터", "렌더링", "스케치",
+        "디자인해줘", "디자인 해줘", "시안"
+    ]
     return any(k in q for k in direct_draw_keywords) or (
         any(k in q for k in image_keywords) and any(k in q for k in action_keywords)
     )
@@ -609,6 +615,40 @@ def extract_image_generation_prompt(query: str) -> str:
     for token in cleanup_tokens:
         prompt = prompt.replace(token, "").strip()
     return prompt or query.strip()
+
+def detect_image_generation_mode(query: str) -> str:
+    q = str(query).lower()
+    is_cafe = any(k in q for k in ["카페", "커피", "음료", "디저트"])
+    wants_menu = any(k in q for k in ["메뉴", "메뉴판", "가격표"])
+    wants_poster = any(k in q for k in ["포스터", "홍보", "신메뉴", "프로모션", "광고"])
+
+    if is_cafe and wants_menu:
+        return "cafe_menu"
+    if is_cafe and wants_poster:
+        return "cafe_poster"
+    return "general"
+
+def build_image_generation_spec(user_query: str, base_prompt: str) -> dict:
+    mode = detect_image_generation_mode(user_query)
+    if mode == "cafe_menu":
+        enhanced_prompt = (
+            f"{base_prompt}\n\n"
+            "카페 메뉴판 디자인 스타일로 생성. 한국어 텍스트가 자연스럽고 읽기 쉬워야 함. "
+            "섹션 구분(예: COFFEE / NON-COFFEE / TEA / ADE / DESSERT), 가격은 숫자로 선명하게 표기. "
+            "배경 대비를 높여 가독성 우선, 메뉴명 정렬 깔끔하게. 군더더기 없는 상업용 메뉴판 톤."
+        )
+        return {"mode": mode, "prompt": enhanced_prompt, "size": "1536x1024", "quality": "high"}
+
+    if mode == "cafe_poster":
+        enhanced_prompt = (
+            f"{base_prompt}\n\n"
+            "카페 신메뉴 홍보 포스터 스타일로 생성. 세로형 레이아웃, 중앙 제품 히어로샷, "
+            "상단에 임팩트 있는 헤드라인, 하단에 짧은 카피와 브랜드 무드. "
+            "컬러는 청량하고 트렌디한 톤, 상업 광고물처럼 완성도 높게."
+        )
+        return {"mode": mode, "prompt": enhanced_prompt, "size": "1024x1536", "quality": "high"}
+
+    return {"mode": mode, "prompt": base_prompt, "size": "1024x1024", "quality": "medium"}
 
 # ---------------------------------
 # 네이버 검색
@@ -1018,9 +1058,15 @@ def is_image_generation_request(query: str) -> bool:
         return matcher(query)
 
     q = str(query).lower().strip()
-    image_keywords = ["이미지", "사진", "그림", "일러스트", "포스터", "캐릭터", "배너", "썸네일", "로고"]
+    image_keywords = [
+        "이미지", "사진", "그림", "일러스트", "포스터", "캐릭터", "배너", "썸네일", "로고",
+        "메뉴", "메뉴판", "홍보물", "전단", "브로슈어", "쿠폰"
+    ]
     action_keywords = ["만들어줘", "만들어 줘", "생성", "제작", "만들기", "뽑아줘"]
-    direct_draw_keywords = ["그려줘", "그려 줘", "그림 그려", "일러스트", "포스터", "렌더링", "스케치"]
+    direct_draw_keywords = [
+        "그려줘", "그려 줘", "그림 그려", "일러스트", "포스터", "렌더링", "스케치",
+        "디자인해줘", "디자인 해줘", "시안"
+    ]
     return any(k in q for k in direct_draw_keywords) or (
         any(k in q for k in image_keywords) and any(k in q for k in action_keywords)
     )
@@ -1547,13 +1593,19 @@ if user_input:
 
             if is_image_generation_request(user_input):
                 image_prompt = get_image_generation_prompt(user_input)
-                generated_images = generate_openai_image(image_prompt)
+                image_spec = build_image_generation_spec(user_input, image_prompt)
+                generated_images = generate_openai_image(
+                    image_spec["prompt"],
+                    size=image_spec["size"],
+                    quality=image_spec["quality"]
+                )
                 st.session_state.last_generated_images = generated_images
-                st.session_state.last_generated_prompt = image_prompt
+                st.session_state.last_generated_prompt = image_spec["prompt"]
 
                 if generated_images:
                     full_text = f"""요청한 이미지 생성이 완료되었습니다. 아래에서 결과를 확인하고 다운로드할 수 있어요.
 
+적용 모드: {image_spec["mode"]}
 프롬프트: {image_prompt}"""
                     placeholder.markdown(full_text)
                 else:
