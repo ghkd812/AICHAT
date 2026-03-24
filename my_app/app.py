@@ -852,9 +852,10 @@ def render_image_results(image_results):
     if not valid_items:
         return
 
-    cols = st.columns(2)
+    column_count = max(1, min(3, len(valid_items)))
+    cols = st.columns(column_count)
     for idx, item in enumerate(valid_items):
-        with cols[idx % 3]:
+        with cols[idx % len(cols)]:
             with st.container(border=True):
                 _, center_col, _ = st.columns([1, 2, 1])
                 with center_col:
@@ -879,7 +880,8 @@ def render_generated_images(generated_images):
         return
 
     st.subheader("🎨 생성된 이미지")
-    cols = st.columns(min(3, len(generated_images)))
+    column_count = max(1, min(3, len(generated_images)))
+    cols = st.columns(column_count)
     for idx, item in enumerate(generated_images):
         with cols[idx % len(cols)]:
             with st.container(border=True):
