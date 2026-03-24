@@ -1553,15 +1553,32 @@ if st.session_state.is_generating:
         st.session_state.stop_generation = True
         st.rerun()
 
-chat_payload = st.chat_input(
-    "메시지를 입력하세요 (파일/스크린샷 첨부 가능)",
-    accept_file="multiple",
-    file_type=[
-        "pdf", "xlsx", "xls", "csv",
-        "pptx", "docx", "txt",
-        "png", "jpg", "jpeg", "webp"
-    ],
-)
+chat_input_file_types = [
+    "pdf", "xlsx", "xls", "csv",
+    "pptx", "docx", "txt",
+    "png", "jpg", "jpeg", "webp"
+]
+
+legacy_chat_uploader_files = []
+try:
+    chat_payload = st.chat_input(
+        "메시지를 입력하세요 (파일/스크린샷 첨부 가능)",
+        accept_file="multiple",
+        file_type=chat_input_file_types,
+    )
+except TypeError:
+    st.warning(
+        "현재 Streamlit 버전에서는 채팅창 첨부가 제한됩니다. "
+        "아래 '파일 첨부(호환 모드)'를 이용해주세요."
+    )
+    chat_payload = st.chat_input("메시지를 입력하세요")
+    legacy_chat_uploader_files = st.file_uploader(
+        "파일 첨부(호환 모드)",
+        type=chat_input_file_types,
+        accept_multiple_files=True,
+        key="legacy_chat_uploader",
+        label_visibility="collapsed",
+    ) or []
 
 user_input = None
 chat_input_files = []
@@ -1571,6 +1588,9 @@ if isinstance(chat_payload, str):
 elif chat_payload is not None:
     user_input = chat_payload.text
     chat_input_files = list(chat_payload.files or [])
+
+if legacy_chat_uploader_files:
+    chat_input_files = list(legacy_chat_uploader_files)
 
 submitted_text = (user_input or "").strip()
 has_chat_submission = bool(submitted_text) or bool(chat_input_files)
