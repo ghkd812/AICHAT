@@ -592,15 +592,19 @@ def make_image_search_query(query: str) -> str:
 
 def should_generate_image(query: str) -> bool:
     q = query.lower().strip()
-    image_keywords = ["이미지", "사진", "그림", "일러스트", "포스터"]
-    action_keywords = ["만들어줘", "생성", "그려줘", "제작", "만들기"]
-    return any(k in q for k in image_keywords) and any(k in q for k in action_keywords)
+    image_keywords = ["이미지", "사진", "그림", "일러스트", "포스터", "캐릭터", "배너", "썸네일", "로고"]
+    action_keywords = ["만들어줘", "만들어 줘", "생성", "제작", "만들기", "뽑아줘"]
+    direct_draw_keywords = ["그려줘", "그려 줘", "그림 그려", "일러스트", "포스터", "렌더링", "스케치"]
+    return any(k in q for k in direct_draw_keywords) or (
+        any(k in q for k in image_keywords) and any(k in q for k in action_keywords)
+    )
 
 def extract_image_generation_prompt(query: str) -> str:
     prompt = query.strip()
     cleanup_tokens = [
         "이미지 만들어줘", "이미지 생성해줘", "이미지 생성", "사진 만들어줘", "그림 그려줘",
-        "그림 만들어줘", "일러스트 만들어줘", "포스터 만들어줘"
+        "그림 만들어줘", "일러스트 만들어줘", "포스터 만들어줘", "이미지로 만들어줘",
+        "사진으로 만들어줘", "그려 줘", "그려줘"
     ]
     for token in cleanup_tokens:
         prompt = prompt.replace(token, "").strip()
@@ -1008,9 +1012,12 @@ def is_image_generation_request(query: str) -> bool:
         return matcher(query)
 
     q = str(query).lower().strip()
-    image_keywords = ["이미지", "사진", "그림", "일러스트", "포스터"]
-    action_keywords = ["만들어줘", "생성", "그려줘", "제작", "만들기"]
-    return any(k in q for k in image_keywords) and any(k in q for k in action_keywords)
+    image_keywords = ["이미지", "사진", "그림", "일러스트", "포스터", "캐릭터", "배너", "썸네일", "로고"]
+    action_keywords = ["만들어줘", "만들어 줘", "생성", "제작", "만들기", "뽑아줘"]
+    direct_draw_keywords = ["그려줘", "그려 줘", "그림 그려", "일러스트", "포스터", "렌더링", "스케치"]
+    return any(k in q for k in direct_draw_keywords) or (
+        any(k in q for k in image_keywords) and any(k in q for k in action_keywords)
+    )
 
 def get_image_generation_prompt(query: str) -> str:
     extractor = globals().get("extract_image_generation_prompt")
