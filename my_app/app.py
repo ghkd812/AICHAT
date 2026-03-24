@@ -55,8 +55,9 @@ section[data-testid="stSidebar"] {
     padding: 14px 16px;
     border: 1px solid #e5e7eb;
     border-radius: 14px;
-    background: #fafafa;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
     margin-bottom: 10px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 .result-title {
     font-weight: 700;
@@ -73,6 +74,45 @@ section[data-testid="stSidebar"] {
 }
 .result-meta a:hover {
     text-decoration: underline;
+}
+.search-summary {
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid #dbeafe;
+    background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+    margin-bottom: 12px;
+}
+.search-badge {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    font-size: 0.8rem;
+    font-weight: 700;
+    margin-right: 0.35rem;
+    margin-bottom: 0.35rem;
+}
+.image-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    overflow: hidden;
+    background: #ffffff;
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+    margin-bottom: 14px;
+}
+.image-card-meta {
+    padding: 12px 14px 14px 14px;
+}
+.image-card-title {
+    font-weight: 700;
+    margin-bottom: 4px;
+    line-height: 1.4;
+}
+.image-card-sub {
+    color: #64748b;
+    font-size: 0.88rem;
+    margin-bottom: 8px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -492,29 +532,123 @@ def should_search_web(query: str) -> bool:
         "근처", "어디", "추천", "여행", "여행지", "가볼만한 곳",
         "가격", "얼마", "출시", "일정", "오픈", "영업시간",
         "주가", "환율", "날씨", "후기", "리뷰", "순위",
-        "뭐야", "왜", "어떻게", "정보", "찾아줘", "검색", "알려줘"
+        "뭐야", "왜", "어떻게", "정보", "찾아줘", "검색", "알려줘",
+        "비교", "베스트", "인기", "사진", "이미지"
     ]
     return any(k in query for k in keywords)
 
-def detect_search_mode(query: str) -> str:
+def build_search_plan(query: str) -> dict:
     q = query.lower()
 
-    naver_local_keywords = [
+    local_keywords = [
         "맛집", "식당", "카페", "술집", "브런치", "디저트",
         "여행지", "가볼만한 곳", "데이트", "근처", "장소", "어디",
-        "관광지", "볼거리", "놀거리"
+        "관광지", "볼거리", "놀거리", "숙소", "호텔"
     ]
-    latest_keywords = [
+    recency_keywords = [
         "뉴스", "최근", "최신", "오늘", "속보", "발표", "이슈",
         "논란", "동향", "주가", "환율", "날씨", "시세", "전망",
         "왜 떨어져", "왜 올랐", "무슨 일", "업데이트", "출시"
     ]
+    image_keywords = [
+        "사진", "이미지", "인테리어", "분위기", "외관", "메뉴", "비주얼"
+    ]
 
-    if any(k in q for k in naver_local_keywords):
-        return "naver_local"
-    if any(k in q for k in latest_keywords):
-        return "openai_web"
-    return "none"
+    use_local = any(k in q for k in local_keywords)
+    use_openai_web = any(k in q for k in recency_keywords)
+    wants_images = any(k in q for k in image_keywords) or use_local
+
+    use_naver_news = use_openai_web or "리뷰" in q or "후기" in q
+    use_naver_web = use_local or use_openai_web or "추천" in q or "비교" in q
+
+    mode_labels = []
+    if use_local:
+        mode_labels.append("네이버 로컬")
+    if use_naver_news:
+        mode_labels.append("네이버 뉴스")
+    if use_naver_web:
+        mode_labels.append("네이버 웹")
+    if use_openai_web:
+        mode_labels.append("OpenAI 웹검색")
+    if wants_images:
+        mode_labels.append("네이버 이미지")
+
+    return {
+        "use_local": use_local,
+        "use_naver_news": use_naver_news,
+        "use_naver_web": use_naver_web,
+        "use_openai_web": use_openai_web,
+        "wants_images": wants_images,
+        "mode_labels": mode_labels or ["일반 응답"]
+    }
+
+def make_image_search_query(query: str) -> str:
+    q = query.strip()
+    if any(keyword in q for keyword in ["맛집", "식당", "카페", "브런치", "디저트"]):
+        return f"{q} 분위기 메뉴"
+    if any(keyword in q for keyword in ["여행", "여행지", "관광지", "호텔", "숙소"]):
+        return f"{q} 사진"
+    return q
+
+def should_generate_image(query: str) -> bool:
+    q = query.lower().strip()
+    image_keywords = [
+        "이미지", "사진", "그림", "일러스트", "포스터", "캐릭터", "배너", "썸네일", "로고",
+        "메뉴", "메뉴판", "홍보물", "전단", "브로슈어", "쿠폰"
+    ]
+    action_keywords = ["만들어줘", "만들어 줘", "생성", "제작", "만들기", "뽑아줘"]
+    direct_draw_keywords = [
+        "그려줘", "그려 줘", "그림 그려", "일러스트", "포스터", "렌더링", "스케치",
+        "디자인해줘", "디자인 해줘", "시안"
+    ]
+    return any(k in q for k in direct_draw_keywords) or (
+        any(k in q for k in image_keywords) and any(k in q for k in action_keywords)
+    )
+
+def extract_image_generation_prompt(query: str) -> str:
+    prompt = query.strip()
+    cleanup_tokens = [
+        "이미지 만들어줘", "이미지 생성해줘", "이미지 생성", "사진 만들어줘", "그림 그려줘",
+        "그림 만들어줘", "일러스트 만들어줘", "포스터 만들어줘", "이미지로 만들어줘",
+        "사진으로 만들어줘", "그려 줘", "그려줘"
+    ]
+    for token in cleanup_tokens:
+        prompt = prompt.replace(token, "").strip()
+    return prompt or query.strip()
+
+def detect_image_generation_mode(query: str) -> str:
+    q = str(query).lower()
+    is_cafe = any(k in q for k in ["카페", "커피", "음료", "디저트"])
+    wants_menu = any(k in q for k in ["메뉴", "메뉴판", "가격표"])
+    wants_poster = any(k in q for k in ["포스터", "홍보", "신메뉴", "프로모션", "광고"])
+
+    if is_cafe and wants_menu:
+        return "cafe_menu"
+    if is_cafe and wants_poster:
+        return "cafe_poster"
+    return "general"
+
+def build_image_generation_spec(user_query: str, base_prompt: str) -> dict:
+    mode = detect_image_generation_mode(user_query)
+    if mode == "cafe_menu":
+        enhanced_prompt = (
+            f"{base_prompt}\n\n"
+            "카페 메뉴판 디자인 스타일로 생성. 한국어 텍스트가 자연스럽고 읽기 쉬워야 함. "
+            "섹션 구분(예: COFFEE / NON-COFFEE / TEA / ADE / DESSERT), 가격은 숫자로 선명하게 표기. "
+            "배경 대비를 높여 가독성 우선, 메뉴명 정렬 깔끔하게. 군더더기 없는 상업용 메뉴판 톤."
+        )
+        return {"mode": mode, "prompt": enhanced_prompt, "size": "1536x1024", "quality": "high"}
+
+    if mode == "cafe_poster":
+        enhanced_prompt = (
+            f"{base_prompt}\n\n"
+            "카페 신메뉴 홍보 포스터 스타일로 생성. 세로형 레이아웃, 중앙 제품 히어로샷, "
+            "상단에 임팩트 있는 헤드라인, 하단에 짧은 카피와 브랜드 무드. "
+            "컬러는 청량하고 트렌디한 톤, 상업 광고물처럼 완성도 높게."
+        )
+        return {"mode": mode, "prompt": enhanced_prompt, "size": "1024x1536", "quality": "high"}
+
+    return {"mode": mode, "prompt": base_prompt, "size": "1024x1024", "quality": "medium"}
 
 # ---------------------------------
 # 네이버 검색
@@ -609,6 +743,73 @@ def naver_image_search(query: str, display: int = 6):
     except Exception as e:
         return [{"error": f"네이버 이미지 검색 오류: {e}"}]
 
+def get_valid_image_results(image_results):
+    return [
+        item for item in (image_results or [])
+        if "error" not in item and item.get("thumbnail")
+    ]
+
+def format_image_search_results(image_results) -> str:
+    valid_items = get_valid_image_results(image_results)
+    if not valid_items:
+        return "이미지 검색 결과 없음"
+
+    lines = []
+    for i, item in enumerate(valid_items, start=1):
+        lines.append(
+            f"{i}. 제목: {item.get('title', '')}\n"
+            f"   썸네일: {item.get('thumbnail', '')}\n"
+            f"   원본 링크: {item.get('link', '')}"
+        )
+    return "\n\n".join(lines)
+
+def generate_openai_image(prompt: str, size: str = "1024x1024", quality: str = "medium"):
+    response = client.images.generate(
+        model="gpt-image-1",
+        prompt=prompt,
+        size=size,
+        quality=quality,
+    )
+
+    data = _to_dict(response).get("data", [])
+    images = []
+    for idx, item in enumerate(data, start=1):
+        b64 = item.get("b64_json")
+        image_url = item.get("url")
+        image_bytes = None
+        display_url = image_url
+
+        if b64:
+            image_bytes = base64.b64decode(b64)
+            display_url = f"data:image/png;base64,{b64}"
+
+        images.append({
+            "id": idx,
+            "prompt": prompt,
+            "image_url": display_url,
+            "image_bytes": image_bytes,
+            "mime_type": "image/png"
+        })
+
+    return images
+
+def format_search_summary(search_plan: dict, naver_results: dict, openai_web_sources: list) -> str:
+    badges = "".join(
+        f'<span class="search-badge">{html.escape(label)}</span>'
+        for label in search_plan.get("mode_labels", [])
+    )
+    local_count = len([x for x in naver_results.get("local", []) if "error" not in x])
+    news_count = len([x for x in naver_results.get("news", []) if "error" not in x])
+    web_count = len([x for x in naver_results.get("web", []) if "error" not in x])
+    image_count = len(get_valid_image_results(naver_results.get("image", [])))
+    source_count = len(openai_web_sources)
+
+    lines = [
+        f"<div class='search-summary'><div><strong>검색 보강 모드</strong></div><div style='margin-top:8px'>{badges}</div>",
+        f"<div style='margin-top:10px; color:#475569; font-size:0.92rem;'>네이버 로컬 {local_count}건 · 뉴스 {news_count}건 · 웹 {web_count}건 · 이미지 {image_count}건 · OpenAI 출처 {source_count}건</div></div>"
+    ]
+    return "".join(lines)
+
 def format_naver_search_results(results, search_type="local") -> str:
     if not results:
         return "검색 결과 없음"
@@ -648,26 +849,30 @@ def render_naver_search_results(results, search_type="local"):
 
         if search_type == "local":
             link = safe_link(item.get("link", ""))
+            telephone = html.escape(item.get("telephone", "") or "정보 없음")
+            address = html.escape(item.get("roadAddress") or item.get("address", "") or "주소 정보 없음")
+            category = html.escape(item.get("category", "") or "카테고리 없음")
             body = f"""
             <div class="result-card">
                 <div class="result-title">{i}. {html.escape(item.get('title',''))}</div>
                 <div class="result-meta">
-                    카테고리: {html.escape(item.get('category',''))}<br>
-                    주소: {html.escape(item.get('roadAddress') or item.get('address',''))}<br>
-                    전화: {html.escape(item.get('telephone',''))}<br>
-                    {"<a href='" + link + "' target='_blank'>링크 열기</a>" if link else ""}
+                    <strong>카테고리</strong>: {category}<br>
+                    <strong>주소</strong>: {address}<br>
+                    <strong>전화</strong>: {telephone}<br>
+                    {"<a href='" + link + "' target='_blank'>상세 링크 열기</a>" if link else ""}
                 </div>
             </div>
             """
         else:
             raw_link = item.get("originallink") or item.get("link", "")
             link = safe_link(raw_link)
+            description = html.escape(item.get("description", "") or "설명 없음")
             body = f"""
             <div class="result-card">
                 <div class="result-title">{i}. {html.escape(item.get('title',''))}</div>
                 <div class="result-meta">
-                    요약: {html.escape(item.get('description',''))}<br>
-                    {"<a href='" + link + "' target='_blank'>링크 열기</a>" if link else ""}
+                    요약: {description}<br>
+                    {"<a href='" + link + "' target='_blank'>원문 열기</a>" if link else ""}
                 </div>
             </div>
             """
@@ -678,7 +883,7 @@ def render_image_results(image_results):
         st.info("이미지 검색 결과가 없습니다.")
         return
 
-    valid_items = [item for item in image_results if "error" not in item and item.get("thumbnail")]
+    valid_items = get_valid_image_results(image_results)
     error_items = [item for item in image_results if "error" in item]
 
     for item in error_items:
@@ -687,15 +892,51 @@ def render_image_results(image_results):
     if not valid_items:
         return
 
-    cols = st.columns(3)
+    column_count = max(1, min(3, len(valid_items)))
+    cols = st.columns(column_count)
     for idx, item in enumerate(valid_items):
-        with cols[idx % 3]:
-            st.image(item["thumbnail"], use_container_width=True)
-            if item.get("title"):
-                st.caption(item["title"])
-            link = item.get("link", "")
-            if link:
-                st.markdown(f"[원본 보기]({link})")
+        with cols[idx % len(cols)]:
+            with st.container(border=True):
+                _, center_col, _ = st.columns([1, 2, 1])
+                with center_col:
+                    st.image(item["thumbnail"], use_container_width=True)
+                width = item.get("sizewidth") or "-"
+                height = item.get("sizeheight") or "-"
+                st.markdown(
+                    f"""
+                    <div class="image-card-meta">
+                        <div class="image-card-title">{html.escape(item.get('title') or '이미지 결과')}</div>
+                        <div class="image-card-sub">썸네일 크기: {html.escape(str(width))} × {html.escape(str(height))}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                link = item.get("link", "")
+                if link:
+                    st.link_button("원본 보기", link, use_container_width=True)
+
+def render_generated_images(generated_images):
+    if not generated_images:
+        return
+
+    st.subheader("🎨 생성된 이미지")
+    column_count = max(1, min(3, len(generated_images)))
+    cols = st.columns(column_count)
+    for idx, item in enumerate(generated_images):
+        with cols[idx % len(cols)]:
+            with st.container(border=True):
+                _, center_col, _ = st.columns([1, 2, 1])
+                with center_col:
+                    st.image(item["image_url"], use_container_width=True)
+                st.caption(item.get("prompt", "생성 이미지"))
+                if item.get("image_bytes"):
+                    st.download_button(
+                        label=f"이미지 다운로드 {item['id']}",
+                        data=item["image_bytes"],
+                        file_name=f"generated_image_{item['id']}.png",
+                        mime=item.get("mime_type", "image/png"),
+                        key=f"download_generated_{item['id']}_{hash(item.get('prompt', ''))}"
+                    )
 
 # ---------------------------------
 # OpenAI 웹검색
@@ -810,6 +1051,40 @@ def run_openai_web_search(model_name: str, instructions: str, history_for_model:
             **common_kwargs
         )
         return response.output_text, extract_openai_web_sources(response)
+
+def is_image_generation_request(query: str) -> bool:
+    matcher = globals().get("should_generate_image")
+    if callable(matcher):
+        return matcher(query)
+
+    q = str(query).lower().strip()
+    image_keywords = [
+        "이미지", "사진", "그림", "일러스트", "포스터", "캐릭터", "배너", "썸네일", "로고",
+        "메뉴", "메뉴판", "홍보물", "전단", "브로슈어", "쿠폰"
+    ]
+    action_keywords = ["만들어줘", "만들어 줘", "생성", "제작", "만들기", "뽑아줘"]
+    direct_draw_keywords = [
+        "그려줘", "그려 줘", "그림 그려", "일러스트", "포스터", "렌더링", "스케치",
+        "디자인해줘", "디자인 해줘", "시안"
+    ]
+    return any(k in q for k in direct_draw_keywords) or (
+        any(k in q for k in image_keywords) and any(k in q for k in action_keywords)
+    )
+
+def get_image_generation_prompt(query: str) -> str:
+    extractor = globals().get("extract_image_generation_prompt")
+    if callable(extractor):
+        return extractor(query)
+    return str(query).strip()
+
+def get_default_runtime_state():
+    return {
+        "naver_results_map": {"local": [], "news": [], "web": [], "image": []},
+        "openai_web_sources": [],
+        "generated_images": [],
+        "search_plan": {"mode_labels": ["일반 응답"]},
+        "do_search": False,
+    }
 
 # ---------------------------------
 # 대화 저장 함수 (MongoDB)
@@ -1003,6 +1278,18 @@ if "show_search_images" not in st.session_state:
 if "show_web_sources" not in st.session_state:
     st.session_state.show_web_sources = True
 
+if "last_generated_images" not in st.session_state:
+    st.session_state.last_generated_images = []
+
+if "last_generated_prompt" not in st.session_state:
+    st.session_state.last_generated_prompt = ""
+
+if "is_generating" not in st.session_state:
+    st.session_state.is_generating = False
+
+if "stop_generation" not in st.session_state:
+    st.session_state.stop_generation = False
+
 # ---------------------------------
 # 로그인 화면
 # ---------------------------------
@@ -1047,6 +1334,8 @@ with st.sidebar:
         st.session_state.last_result_df = None
         st.session_state.last_preview_html = None
         st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
+        st.session_state.last_generated_images = []
+        st.session_state.last_generated_prompt = ""
         if "current_chat_id" in st.session_state:
             del st.session_state["current_chat_id"]
         st.rerun()
@@ -1060,6 +1349,8 @@ with st.sidebar:
         st.session_state.last_result_df = None
         st.session_state.last_preview_html = None
         st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
+        st.session_state.last_generated_images = []
+        st.session_state.last_generated_prompt = ""
         st.rerun()
 
     st.divider()
@@ -1074,6 +1365,8 @@ with st.sidebar:
                 st.session_state.last_result_df = None
                 st.session_state.last_preview_html = None
                 st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
+                st.session_state.last_generated_images = []
+                st.session_state.last_generated_prompt = ""
                 st.rerun()
 
         with col2:
@@ -1134,7 +1427,7 @@ with st.sidebar:
         value=st.session_state.show_web_sources
     )
 
-    st.caption("국내 장소/맛집/이미지는 네이버, 최신 뉴스/웹정보는 OpenAI 웹검색을 사용합니다.")
+    st.caption("국내 장소/맛집/이미지는 네이버, 최신 뉴스/웹정보는 OpenAI 웹검색을 함께 사용합니다. 질문 성격에 따라 로컬·뉴스·웹문서·이미지를 자동 조합합니다.")
 
 # ---------------------------------
 # 현재 대화 로드
@@ -1143,23 +1436,9 @@ current_data = load_chat(st.session_state.current_chat_id)
 messages = current_data["messages"]
 
 # ---------------------------------
-# 파일 업로드
+# 파일 첨부 안내 (채팅창 첨부 사용)
 # ---------------------------------
-st.subheader("📎 파일 첨부")
-
-uploaded_files = st.file_uploader(
-    "여기에 파일을 드래그하거나 클릭해서 선택하세요",
-    type=[
-        "pdf", "xlsx", "xls", "csv",
-        "pptx", "docx", "txt",
-        "png", "jpg", "jpeg", "webp"
-    ],
-    accept_multiple_files=True,
-    key="main_file_uploader"
-)
-
-if uploaded_files is not None and len(uploaded_files) > 0:
-    st.session_state.uploaded_files_cache = uploaded_files
+st.caption("📎 파일/스크린샷 첨부는 아래 대화 입력창(+)에서 해주세요.")
 
 active_files = st.session_state.uploaded_files_cache
 
@@ -1244,6 +1523,9 @@ for msg in messages:
 # ---------------------------------
 # 마지막 HTML 미리보기 재표시
 # ---------------------------------
+if st.session_state.last_generated_images:
+    render_generated_images(st.session_state.last_generated_images)
+
 if st.session_state.last_preview_html:
     st.subheader("🖥 HTML/CSS 미리보기")
     components.html(st.session_state.last_preview_html, height=700, scrolling=True)
@@ -1264,11 +1546,36 @@ if st.session_state.last_preview_html:
             st.code(blocks["js"], language="javascript")
 
 # ---------------------------------
-# 사용자 입력
+# 사용자 입력 (채팅창 첨부 지원)
 # ---------------------------------
-user_input = st.chat_input("메시지를 입력하세요")
+if st.session_state.is_generating:
+    if st.button("⏹ 응답 멈춤", use_container_width=True):
+        st.session_state.stop_generation = True
+        st.rerun()
+
+chat_payload = st.chat_input(
+    "메시지를 입력하세요 (파일/스크린샷 첨부 가능)",
+    accept_file="multiple",
+    file_type=[
+        "pdf", "xlsx", "xls", "csv",
+        "pptx", "docx", "txt",
+        "png", "jpg", "jpeg", "webp"
+    ],
+)
+
+user_input = None
+chat_input_files = []
+
+if isinstance(chat_payload, str):
+    user_input = chat_payload
+elif chat_payload is not None:
+    user_input = chat_payload.text
+    chat_input_files = list(chat_payload.files or [])
 
 if user_input:
+    if chat_input_files:
+        st.session_state.uploaded_files_cache = chat_input_files
+
     chat_id = st.session_state.current_chat_id
 
     messages.append({"role": "user", "content": user_input})
@@ -1286,10 +1593,14 @@ if user_input:
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_text = ""
-        naver_results = []
-        naver_image_results = []
-        openai_web_sources = []
-        selected_search_mode = "none"
+        st.session_state.is_generating = True
+        st.session_state.stop_generation = False
+        runtime_state = get_default_runtime_state()
+        naver_results_map = runtime_state["naver_results_map"]
+        openai_web_sources = runtime_state["openai_web_sources"]
+        generated_images = runtime_state["generated_images"]
+        search_plan = runtime_state["search_plan"]
+        do_search = runtime_state["do_search"]
 
         try:
             history_for_model = []
@@ -1299,85 +1610,153 @@ if user_input:
                     "content": msg["content"]
                 })
 
-            do_search = False
-            if st.session_state.use_web_search:
-                if st.session_state.auto_search_only:
-                    do_search = should_search_web(user_input)
+            if is_image_generation_request(user_input):
+                image_prompt = get_image_generation_prompt(user_input)
+                image_spec = build_image_generation_spec(user_input, image_prompt)
+                generated_images = generate_openai_image(
+                    image_spec["prompt"],
+                    size=image_spec["size"],
+                    quality=image_spec["quality"]
+                )
+                st.session_state.last_generated_images = generated_images
+                st.session_state.last_generated_prompt = image_spec["prompt"]
+
+                if generated_images:
+                    full_text = f"""요청한 이미지 생성이 완료되었습니다. 아래에서 결과를 확인하고 다운로드할 수 있어요.
+
+적용 모드: {image_spec["mode"]}
+프롬프트: {image_prompt}"""
+                    placeholder.markdown(full_text)
                 else:
-                    do_search = True
+                    full_text = "이미지 생성 결과를 받지 못했습니다. 프롬프트를 조금 더 구체적으로 적어 주세요."
+                    placeholder.warning(full_text)
+            else:
+                st.session_state.last_generated_images = []
+                st.session_state.last_generated_prompt = ""
 
-            selected_search_mode = detect_search_mode(user_input) if do_search else "none"
+                if st.session_state.use_web_search:
+                    if st.session_state.auto_search_only:
+                        do_search = should_search_web(user_input)
+                    else:
+                        do_search = True
 
-            user_text = f"""사용자 질문:
+                search_plan = build_search_plan(user_input) if do_search else {"mode_labels": ["일반 응답"]}
+
+                user_text = f"""사용자 질문:
 {user_input}
 
 첨부 파일 내용:
 {file_context if file_context else "첨부된 파일 없음"}
 """
 
-            if selected_search_mode == "naver_local":
-                naver_results = naver_search(user_input, search_type="local", display=5)
-                naver_context = format_naver_search_results(naver_results, search_type="local")
-                user_text += f"""
+                if do_search and search_plan.get("use_local"):
+                    naver_results_map["local"] = naver_search(user_input, search_type="local", display=5)
+                    user_text += f"""
 
 네이버 장소 검색 결과:
-{naver_context}
+{format_naver_search_results(naver_results_map['local'], search_type='local')}
 """
-                if st.session_state.show_search_images:
-                    naver_image_results = naver_image_search(user_input, display=6)
 
-            user_content = [
-                {
-                    "type": "input_text",
-                    "text": user_text
-                }
-            ]
+                if do_search and search_plan.get("use_naver_news"):
+                    naver_results_map["news"] = naver_search(user_input, search_type="news", display=4)
+                    user_text += f"""
 
-            if image_inputs:
-                user_content.extend(image_inputs)
+네이버 뉴스 검색 결과:
+{format_naver_search_results(naver_results_map['news'], search_type='news')}
+"""
 
-            if selected_search_mode == "openai_web":
-                full_text, openai_web_sources = run_openai_web_search(
-                    model_name=st.session_state.model_name,
-                    instructions=build_system_prompt(st.session_state.answer_length),
-                    history_for_model=history_for_model,
-                    user_content=user_content
-                )
-                placeholder.markdown(full_text)
-            else:
-                stream = client.responses.create(
-                    model=st.session_state.model_name,
-                    input=[
-                        {"role": "system", "content": build_system_prompt(st.session_state.answer_length)},
-                        *history_for_model,
-                        {"role": "user", "content": user_content}
-                    ],
-                    stream=True
-                )
+                if do_search and search_plan.get("use_naver_web"):
+                    naver_results_map["web"] = naver_search(user_input, search_type="webkr", display=4)
+                    user_text += f"""
 
-                for event in stream:
-                    if event.type == "response.output_text.delta":
-                        full_text += event.delta
-                        placeholder.markdown(full_text + "▌")
-                    elif event.type == "response.completed":
-                        break
+네이버 웹문서 검색 결과:
+{format_naver_search_results(naver_results_map['web'], search_type='webkr')}
+"""
 
-                placeholder.markdown(full_text)
+                if do_search and st.session_state.show_search_images and search_plan.get("wants_images"):
+                    naver_results_map["image"] = naver_image_search(make_image_search_query(user_input), display=6)
+                    user_text += f"""
+
+네이버 이미지 검색 결과:
+{format_image_search_results(naver_results_map['image'])}
+"""
+
+                user_content = [
+                    {
+                        "type": "input_text",
+                        "text": user_text
+                    }
+                ]
+
+                if image_inputs:
+                    user_content.extend(image_inputs)
+
+                if do_search and search_plan.get("use_openai_web"):
+                    full_text, openai_web_sources = run_openai_web_search(
+                        model_name=st.session_state.model_name,
+                        instructions=build_system_prompt(st.session_state.answer_length),
+                        history_for_model=history_for_model,
+                        user_content=user_content
+                    )
+                    placeholder.markdown(full_text)
+                else:
+                    stream = client.responses.create(
+                        model=st.session_state.model_name,
+                        input=[
+                            {"role": "system", "content": build_system_prompt(st.session_state.answer_length)},
+                            *history_for_model,
+                            {"role": "user", "content": user_content}
+                        ],
+                        stream=True
+                    )
+
+                    for event in stream:
+                        if st.session_state.stop_generation:
+                            full_text += "\n\n(사용자 요청으로 응답 생성을 중단했습니다.)"
+                            break
+                        if event.type == "response.output_text.delta":
+                            full_text += event.delta
+                            placeholder.markdown(full_text + "▌")
+                        elif event.type == "response.completed":
+                            break
+
+                    placeholder.markdown(full_text)
 
         except Exception as e:
             full_text = f"오류가 발생했습니다: {e}"
             placeholder.error(full_text)
+        finally:
+            st.session_state.is_generating = False
+            st.session_state.stop_generation = False
 
         messages.append({"role": "assistant", "content": full_text})
         append_message(chat_id, "assistant", full_text)
 
-        if naver_results:
-            with st.expander("네이버 검색 결과 보기", expanded=False):
-                render_naver_search_results(naver_results, search_type="local")
+        if generated_images:
+            render_generated_images(generated_images)
 
-        if naver_image_results:
+        if do_search:
+            st.markdown(
+                format_search_summary(search_plan, naver_results_map, openai_web_sources),
+                unsafe_allow_html=True
+            )
+
+        if naver_results_map["local"]:
+            with st.expander("네이버 장소 검색 결과 보기", expanded=False):
+                render_naver_search_results(naver_results_map["local"], search_type="local")
+
+        if naver_results_map["news"]:
+            with st.expander("네이버 뉴스 검색 결과 보기", expanded=False):
+                render_naver_search_results(naver_results_map["news"], search_type="news")
+
+        if naver_results_map["web"]:
+            with st.expander("네이버 웹문서 검색 결과 보기", expanded=False):
+                render_naver_search_results(naver_results_map["web"], search_type="webkr")
+
+        valid_image_results = get_valid_image_results(naver_results_map["image"])
+        if valid_image_results:
             with st.expander("관련 이미지 보기", expanded=False):
-                render_image_results(naver_image_results)
+                render_image_results(valid_image_results)
 
         if openai_web_sources and st.session_state.show_web_sources:
             with st.expander("OpenAI 웹검색 출처 보기", expanded=False):
