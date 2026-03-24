@@ -148,6 +148,7 @@ def get_db():
         server_api=ServerApi("1"),
         tls=True,
         tlsCAFile=certifi.where(),
+        serverSelectionTimeoutMS=5000,
         connectTimeoutMS=20000,
         socketTimeoutMS=20000,
     )
@@ -1566,9 +1567,9 @@ try:
         accept_file="multiple",
         file_type=chat_input_file_types,
     )
-except TypeError:
+except Exception:
     st.warning(
-        "현재 Streamlit 버전에서는 채팅창 첨부가 제한됩니다. "
+        "현재 실행 환경에서는 채팅창 첨부가 제한됩니다. "
         "아래 '파일 첨부(호환 모드)'를 이용해주세요."
     )
     chat_payload = st.chat_input("메시지를 입력하세요")
