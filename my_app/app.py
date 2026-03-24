@@ -1291,6 +1291,9 @@ if "is_generating" not in st.session_state:
 if "stop_generation" not in st.session_state:
     st.session_state.stop_generation = False
 
+if "last_chat_upload_signature" not in st.session_state:
+    st.session_state.last_chat_upload_signature = ""
+
 # ---------------------------------
 # 로그인 화면
 # ---------------------------------
@@ -1337,6 +1340,7 @@ with st.sidebar:
         st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
         st.session_state.last_generated_images = []
         st.session_state.last_generated_prompt = ""
+        st.session_state.last_chat_upload_signature = ""
         if "current_chat_id" in st.session_state:
             del st.session_state["current_chat_id"]
         st.rerun()
@@ -1352,6 +1356,7 @@ with st.sidebar:
         st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
         st.session_state.last_generated_images = []
         st.session_state.last_generated_prompt = ""
+        st.session_state.last_chat_upload_signature = ""
         st.rerun()
 
     st.divider()
@@ -1368,6 +1373,7 @@ with st.sidebar:
                 st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
                 st.session_state.last_generated_images = []
                 st.session_state.last_generated_prompt = ""
+                st.session_state.last_chat_upload_signature = ""
                 st.rerun()
 
         with col2:
@@ -1506,6 +1512,7 @@ OCR 전처리 텍스트는 제공하지 않으니, 필요한 경우 이미지 �
 
     if st.button("첨부 파일 비우기"):
         st.session_state.uploaded_files_cache = []
+        st.session_state.last_chat_upload_signature = ""
         st.rerun()
 else:
     st.info("업로드된 파일 없음")
@@ -1559,6 +1566,7 @@ chat_input_file_types = [
     "pptx", "docx", "txt",
     "png", "jpg", "jpeg", "webp"
 ]
+image_only_file_types = ["png", "jpg", "jpeg", "webp"]
 
 legacy_chat_uploader_files = []
 try:
@@ -1581,6 +1589,15 @@ except Exception:
         label_visibility="collapsed",
     ) or []
 
+# 일부 브라우저/환경에서는 chat_input Ctrl+V가 동작하지 않아 전용 붙여넣기 업로더를 함께 제공
+clipboard_paste_files = st.file_uploader(
+    "클립보드 이미지 붙여넣기 (Ctrl+V)",
+    type=image_only_file_types,
+    accept_multiple_files=True,
+    key="clipboard_paste_uploader",
+    help="채팅 입력창 붙여넣기가 안 될 때 여기에 Ctrl+V 해주세요.",
+)
+
 user_input = None
 chat_input_files = []
 
@@ -1592,11 +1609,23 @@ elif chat_payload is not None:
 
 if legacy_chat_uploader_files:
     chat_input_files = list(legacy_chat_uploader_files)
+if clipboard_paste_files:
+    chat_input_files.extend(list(clipboard_paste_files))
 
 submitted_text = (user_input or "").strip()
-has_chat_submission = bool(submitted_text) or bool(chat_input_files)
+upload_signature = "|".join(
+    f"{getattr(f, 'name', 'file')}:{getattr(f, 'size', 0)}"
+    for f in chat_input_files
+)
+is_new_upload_submission = bool(chat_input_files) and (
+    upload_signature != st.session_state.last_chat_upload_signature
+)
+has_chat_submission = bool(submitted_text) or is_new_upload_submission
 
 if has_chat_submission:
+    if is_new_upload_submission:
+        st.session_state.last_chat_upload_signature = upload_signature
+
     if chat_input_files:
         st.session_state.uploaded_files_cache = chat_input_files
         if not submitted_text:
@@ -1642,6 +1671,7 @@ if has_chat_submission:
             if is_image_generation_request(submitted_text):
                 image_prompt = get_image_generation_prompt(submitted_text)
                 image_spec = build_image_generation_spec(submitted_text, image_prompt)
+                placeholder.info("🎨 이미지 생성 중입니다... 잠시만 기다려주세요.")
                 generated_images = generate_openai_image(
                     image_spec["prompt"],
                     size=image_spec["size"],
