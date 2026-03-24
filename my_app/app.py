@@ -1284,6 +1284,12 @@ if "last_generated_images" not in st.session_state:
 if "last_generated_prompt" not in st.session_state:
     st.session_state.last_generated_prompt = ""
 
+if "is_generating" not in st.session_state:
+    st.session_state.is_generating = False
+
+if "stop_generation" not in st.session_state:
+    st.session_state.stop_generation = False
+
 # ---------------------------------
 # 로그인 화면
 # ---------------------------------
@@ -1430,23 +1436,9 @@ current_data = load_chat(st.session_state.current_chat_id)
 messages = current_data["messages"]
 
 # ---------------------------------
-# 파일 업로드
+# 파일 첨부 안내 (채팅창 첨부 사용)
 # ---------------------------------
-st.subheader("📎 파일 첨부")
-
-uploaded_files = st.file_uploader(
-    "여기에 파일을 드래그하거나 클릭해서 선택하세요",
-    type=[
-        "pdf", "xlsx", "xls", "csv",
-        "pptx", "docx", "txt",
-        "png", "jpg", "jpeg", "webp"
-    ],
-    accept_multiple_files=True,
-    key="main_file_uploader"
-)
-
-if uploaded_files is not None and len(uploaded_files) > 0:
-    st.session_state.uploaded_files_cache = uploaded_files
+st.caption("📎 파일/스크린샷 첨부는 아래 대화 입력창(+)에서 해주세요.")
 
 active_files = st.session_state.uploaded_files_cache
 
@@ -1554,11 +1546,36 @@ if st.session_state.last_preview_html:
             st.code(blocks["js"], language="javascript")
 
 # ---------------------------------
-# 사용자 입력
+# 사용자 입력 (채팅창 첨부 지원)
 # ---------------------------------
-user_input = st.chat_input("메시지를 입력하세요")
+if st.session_state.is_generating:
+    if st.button("⏹ 응답 멈춤", use_container_width=True):
+        st.session_state.stop_generation = True
+        st.rerun()
+
+chat_payload = st.chat_input(
+    "메시지를 입력하세요 (파일/스크린샷 첨부 가능)",
+    accept_file="multiple",
+    file_type=[
+        "pdf", "xlsx", "xls", "csv",
+        "pptx", "docx", "txt",
+        "png", "jpg", "jpeg", "webp"
+    ],
+)
+
+user_input = None
+chat_input_files = []
+
+if isinstance(chat_payload, str):
+    user_input = chat_payload
+elif chat_payload is not None:
+    user_input = chat_payload.text
+    chat_input_files = list(chat_payload.files or [])
 
 if user_input:
+    if chat_input_files:
+        st.session_state.uploaded_files_cache = chat_input_files
+
     chat_id = st.session_state.current_chat_id
 
     messages.append({"role": "user", "content": user_input})
@@ -1576,6 +1593,8 @@ if user_input:
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_text = ""
+        st.session_state.is_generating = True
+        st.session_state.stop_generation = False
         runtime_state = get_default_runtime_state()
         naver_results_map = runtime_state["naver_results_map"]
         openai_web_sources = runtime_state["openai_web_sources"]
@@ -1692,6 +1711,9 @@ if user_input:
                     )
 
                     for event in stream:
+                        if st.session_state.stop_generation:
+                            full_text += "\n\n(사용자 요청으로 응답 생성을 중단했습니다.)"
+                            break
                         if event.type == "response.output_text.delta":
                             full_text += event.delta
                             placeholder.markdown(full_text + "▌")
@@ -1703,6 +1725,9 @@ if user_input:
         except Exception as e:
             full_text = f"오류가 발생했습니다: {e}"
             placeholder.error(full_text)
+        finally:
+            st.session_state.is_generating = False
+            st.session_state.stop_generation = False
 
         messages.append({"role": "assistant", "content": full_text})
         append_message(chat_id, "assistant", full_text)
