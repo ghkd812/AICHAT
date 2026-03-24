@@ -854,9 +854,11 @@ def render_image_results(image_results):
 
     cols = st.columns(2)
     for idx, item in enumerate(valid_items):
-        with cols[idx % 2]:
+        with cols[idx % 3]:
             with st.container(border=True):
-                st.image(item["thumbnail"], use_container_width=True)
+                _, center_col, _ = st.columns([1, 2, 1])
+                with center_col:
+                    st.image(item["thumbnail"], use_container_width=True)
                 width = item.get("sizewidth") or "-"
                 height = item.get("sizeheight") or "-"
                 st.markdown(
@@ -877,11 +879,13 @@ def render_generated_images(generated_images):
         return
 
     st.subheader("🎨 생성된 이미지")
-    cols = st.columns(min(2, len(generated_images)))
+    cols = st.columns(min(3, len(generated_images)))
     for idx, item in enumerate(generated_images):
         with cols[idx % len(cols)]:
             with st.container(border=True):
-                st.image(item["image_url"], use_container_width=True)
+                _, center_col, _ = st.columns([1, 2, 1])
+                with center_col:
+                    st.image(item["image_url"], use_container_width=True)
                 st.caption(item.get("prompt", "생성 이미지"))
                 if item.get("image_bytes"):
                     st.download_button(
@@ -1672,7 +1676,7 @@ if user_input:
 
         valid_image_results = get_valid_image_results(naver_results_map["image"])
         if valid_image_results:
-            with st.expander("관련 이미지 보기", expanded=True):
+            with st.expander("관련 이미지 보기", expanded=False):
                 render_image_results(valid_image_results)
 
         if openai_web_sources and st.session_state.show_web_sources:
