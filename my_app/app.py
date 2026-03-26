@@ -1412,30 +1412,27 @@ with st.sidebar:
     st.header("Agent 역할")
     sidebar_chat_data = load_chat(st.session_state.current_chat_id)
     current_agent_role = sidebar_chat_data.get("agent_role", "")
-    agent_role_key = f"agent_role_input_{st.session_state.current_chat_id}"
-    if agent_role_key not in st.session_state:
-        st.session_state[agent_role_key] = current_agent_role
+    with st.form(key=f"agent_role_form_{st.session_state.current_chat_id}"):
+        edited_agent_role = st.text_input(
+            "이 대화의 역할",
+            value=current_agent_role,
+            placeholder="예: 너는 서비스 기획자야. 기획자 관점으로 답변해줘.",
+        )
+        col_apply, col_clear = st.columns(2)
+        with col_apply:
+            apply_clicked = st.form_submit_button("역할 적용하기", use_container_width=True)
+        with col_clear:
+            clear_clicked = st.form_submit_button("역할 비우기", use_container_width=True)
 
-    st.text_input(
-        "이 대화의 역할",
-        placeholder="예: 너는 서비스 기획자야. 기획자 관점으로 답변해줘.",
-        key=agent_role_key
-    )
-    col_apply, col_clear = st.columns(2)
-    with col_apply:
-        if st.button("역할 적용하기", use_container_width=True):
-            update_chat_agent_role(
-                st.session_state.current_chat_id,
-                st.session_state.get(agent_role_key, "")
-            )
-            st.success("이 대화의 Agent 역할이 적용되었습니다.")
-            st.rerun()
-    with col_clear:
-        if st.button("역할 비우기", use_container_width=True):
-            st.session_state[agent_role_key] = ""
-            update_chat_agent_role(st.session_state.current_chat_id, "")
-            st.success("Agent 역할을 비웠습니다.")
-            st.rerun()
+    if apply_clicked:
+        update_chat_agent_role(st.session_state.current_chat_id, edited_agent_role)
+        st.success("이 대화의 Agent 역할이 적용되었습니다.")
+        st.rerun()
+
+    if clear_clicked:
+        update_chat_agent_role(st.session_state.current_chat_id, "")
+        st.success("Agent 역할을 비웠습니다.")
+        st.rerun()
 
     st.caption("예시: '너는 PM이야', '너는 마케팅 카피라이터야', '너는 여행 플래너야'")
 
