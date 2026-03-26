@@ -36,13 +36,14 @@ section[data-testid="stSidebar"] {
     width: 320px !important;
 }
 .chat-title {
-    font-size: 2.2rem;
+    font-size: clamp(1.6rem, 2.8vw, 2.3rem);
     font-weight: 800;
     margin-bottom: 1rem;
-    line-height: 1.35;
+    line-height: 1.25;
     white-space: normal !important;
     word-break: keep-all;
     overflow-wrap: anywhere;
+    width: 100%;
 }
 .preview-wrap {
     border: 1px solid #e5e7eb;
@@ -1093,6 +1094,7 @@ def get_default_runtime_state():
 def get_default_chat_data():
     return {
         "title": "새 대화",
+        "agent_role": "",
         "messages": [
             {"role": "assistant", "content": "안녕하세요! 무엇을 도와드릴까요?"}
         ]
@@ -1107,6 +1109,7 @@ def create_new_chat():
         "username": username,
         "chat_id": chat_id,
         "title": data["title"],
+        "agent_role": data["agent_role"],
         "messages": data["messages"],
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
@@ -1117,12 +1120,13 @@ def load_chat(chat_id: str):
     username = st.session_state.get("username", "guest")
     doc = get_chats_col().find_one(
         {"username": username, "chat_id": chat_id},
-        {"_id": 0, "title": 1, "messages": 1}
+        {"_id": 0, "title": 1, "agent_role": 1, "messages": 1}
     )
 
     if doc:
         return {
             "title": doc.get("title", "새 대화"),
+            "agent_role": doc.get("agent_role", ""),
             "messages": doc.get("messages", get_default_chat_data()["messages"])
         }
 
@@ -1164,6 +1168,18 @@ def update_chat_title(chat_id: str, title: str):
         }
     )
 
+def update_chat_agent_role(chat_id: str, agent_role: str):
+    username = st.session_state.get("username", "guest")
+    get_chats_col().update_one(
+        {"username": username, "chat_id": chat_id},
+        {
+            "$set": {
+                "agent_role": agent_role.strip(),
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+
 def list_chats():
     username = st.session_state.get("username", "guest")
 
@@ -1195,16 +1211,25 @@ def make_title_from_messages(messages):
             return text[:20] if len(text) > 20 else text
     return "새 대화"
 
+def get_chat_avatar(role: str):
+    if role == "user":
+        return "🧸"
+    return "🐰"
+
 # ---------------------------------
 # 프롬프트
 # ---------------------------------
-def build_system_prompt(answer_length: str) -> str:
+def build_system_prompt(answer_length: str, agent_role: str = "") -> str:
     if answer_length == "짧게":
         length_rule = "답변은 핵심만 2~3문장으로 간단히 설명한다."
     elif answer_length == "보통":
         length_rule = "답변은 3~6문장 정도로 설명한다."
     else:
         length_rule = "답변은 충분히 자세하게 설명하고, 필요하면 예시와 항목 정리를 포함한다."
+
+    role_instruction = ""
+    if agent_role and agent_role.strip():
+        role_instruction = f"\n추가 역할 지시:\n- {agent_role.strip()}\n- 위 역할의 관점/톤을 유지하되, 사실을 지어내지는 않는다.\n"
 
     return f"""
 너는 친절하고 유능한 한국어 AI 챗봇이다.
@@ -1236,6 +1261,7 @@ def build_system_prompt(answer_length: str) -> str:
 
 웹검색 결과가 함께 제공된 경우, 그 결과를 참고해서 답변하되 검색 결과에 없는 내용을 지어내지 않는다.
 관련 이미지 검색 결과가 함께 제공된 경우, 시각적으로 참고할 수 있다고만 생각하고 사실관계는 텍스트 검색 결과를 우선한다.
+{role_instruction}
 
 {length_rule}
 """
@@ -1291,9 +1317,6 @@ if "is_generating" not in st.session_state:
 if "stop_generation" not in st.session_state:
     st.session_state.stop_generation = False
 
-if "last_chat_upload_signature" not in st.session_state:
-    st.session_state.last_chat_upload_signature = ""
-
 # ---------------------------------
 # 로그인 화면
 # ---------------------------------
@@ -1340,7 +1363,6 @@ with st.sidebar:
         st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
         st.session_state.last_generated_images = []
         st.session_state.last_generated_prompt = ""
-        st.session_state.last_chat_upload_signature = ""
         if "current_chat_id" in st.session_state:
             del st.session_state["current_chat_id"]
         st.rerun()
@@ -1356,7 +1378,6 @@ with st.sidebar:
         st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
         st.session_state.last_generated_images = []
         st.session_state.last_generated_prompt = ""
-        st.session_state.last_chat_upload_signature = ""
         st.rerun()
 
     st.divider()
@@ -1373,7 +1394,6 @@ with st.sidebar:
                 st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
                 st.session_state.last_generated_images = []
                 st.session_state.last_generated_prompt = ""
-                st.session_state.last_chat_upload_signature = ""
                 st.rerun()
 
         with col2:
@@ -1387,6 +1407,21 @@ with st.sidebar:
                     else:
                         st.session_state.current_chat_id = create_new_chat()
                 st.rerun()
+
+    st.divider()
+    st.header("Agent 역할")
+    sidebar_chat_data = load_chat(st.session_state.current_chat_id)
+    current_agent_role = sidebar_chat_data.get("agent_role", "")
+    edited_agent_role = st.text_input(
+        "이 대화의 역할",
+        value=current_agent_role,
+        placeholder="예: 너는 서비스 기획자야. 기획자 관점으로 답변해줘.",
+        key=f"agent_role_input_{st.session_state.current_chat_id}"
+    )
+    if edited_agent_role != current_agent_role:
+        update_chat_agent_role(st.session_state.current_chat_id, edited_agent_role)
+
+    st.caption("예시: '너는 PM이야', '너는 마케팅 카피라이터야', '너는 여행 플래너야'")
 
     st.divider()
     st.header("답변 설정")
@@ -1441,6 +1476,10 @@ with st.sidebar:
 # ---------------------------------
 current_data = load_chat(st.session_state.current_chat_id)
 messages = current_data["messages"]
+current_agent_role = current_data.get("agent_role", "").strip()
+
+if current_agent_role:
+    st.info(f"🧠 현재 대화 Agent 역할: {current_agent_role}")
 
 # ---------------------------------
 # 파일 첨부 안내 (채팅창 첨부 사용)
@@ -1525,7 +1564,7 @@ with st.expander("첨부 데이터 확인", expanded=False):
 # 이전 대화 출력
 # ---------------------------------
 for msg in messages:
-    with st.chat_message(msg["role"]):
+    with st.chat_message(msg["role"], avatar=get_chat_avatar(msg["role"])):
         st.write(msg["content"])
 
 # ---------------------------------
@@ -1556,6 +1595,8 @@ if st.session_state.last_preview_html:
 # ---------------------------------
 # 사용자 입력 (채팅창 첨부 지원)
 # ---------------------------------
+st.caption("💡 채팅 입력창을 클릭한 뒤 Ctrl+V로 스크린샷 이미지를 바로 붙여넣을 수 있어요.")
+
 if st.session_state.is_generating:
     if st.button("⏹ 응답 멈춤", use_container_width=True):
         st.session_state.stop_generation = True
@@ -1566,14 +1607,12 @@ chat_input_file_types = [
     "pptx", "docx", "txt",
     "png", "jpg", "jpeg", "webp"
 ]
-image_only_file_types = ["png", "jpg", "jpeg", "webp"]
 
 legacy_chat_uploader_files = []
 try:
     chat_payload = st.chat_input(
         "메시지를 입력하세요 (파일/스크린샷 첨부 가능)",
         accept_file="multiple",
-        file_type=chat_input_file_types,
     )
 except Exception:
     st.warning(
@@ -1589,15 +1628,6 @@ except Exception:
         label_visibility="collapsed",
     ) or []
 
-# 일부 브라우저/환경에서는 chat_input Ctrl+V가 동작하지 않아 전용 붙여넣기 업로더를 함께 제공
-clipboard_paste_files = st.file_uploader(
-    "클립보드 이미지 붙여넣기 (Ctrl+V)",
-    type=image_only_file_types,
-    accept_multiple_files=True,
-    key="clipboard_paste_uploader",
-    help="채팅 입력창 붙여넣기가 안 될 때 여기에 Ctrl+V 해주세요.",
-)
-
 user_input = None
 chat_input_files = []
 
@@ -1609,23 +1639,11 @@ elif chat_payload is not None:
 
 if legacy_chat_uploader_files:
     chat_input_files = list(legacy_chat_uploader_files)
-if clipboard_paste_files:
-    chat_input_files.extend(list(clipboard_paste_files))
 
 submitted_text = (user_input or "").strip()
-upload_signature = "|".join(
-    f"{getattr(f, 'name', 'file')}:{getattr(f, 'size', 0)}"
-    for f in chat_input_files
-)
-is_new_upload_submission = bool(chat_input_files) and (
-    upload_signature != st.session_state.last_chat_upload_signature
-)
-has_chat_submission = bool(submitted_text) or is_new_upload_submission
+has_chat_submission = bool(submitted_text) or bool(chat_input_files)
 
 if has_chat_submission:
-    if is_new_upload_submission:
-        st.session_state.last_chat_upload_signature = upload_signature
-
     if chat_input_files:
         st.session_state.uploaded_files_cache = chat_input_files
         if not submitted_text:
@@ -1645,10 +1663,10 @@ if has_chat_submission:
 
     append_message(chat_id, "user", submitted_text)
 
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar=get_chat_avatar("user")):
         st.write(submitted_text)
 
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar=get_chat_avatar("assistant")):
         placeholder = st.empty()
         full_text = ""
         st.session_state.is_generating = True
@@ -1753,7 +1771,10 @@ if has_chat_submission:
                 if do_search and search_plan.get("use_openai_web"):
                     full_text, openai_web_sources = run_openai_web_search(
                         model_name=st.session_state.model_name,
-                        instructions=build_system_prompt(st.session_state.answer_length),
+                        instructions=build_system_prompt(
+                            st.session_state.answer_length,
+                            current_agent_role
+                        ),
                         history_for_model=history_for_model,
                         user_content=user_content
                     )
@@ -1762,7 +1783,13 @@ if has_chat_submission:
                     stream = client.responses.create(
                         model=st.session_state.model_name,
                         input=[
-                            {"role": "system", "content": build_system_prompt(st.session_state.answer_length)},
+                            {
+                                "role": "system",
+                                "content": build_system_prompt(
+                                    st.session_state.answer_length,
+                                    current_agent_role
+                                )
+                            },
                             *history_for_model,
                             {"role": "user", "content": user_content}
                         ],
