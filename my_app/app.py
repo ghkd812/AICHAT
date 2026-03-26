@@ -3,6 +3,7 @@ import io
 import json
 import re
 import base64
+import hashlib
 import html
 from datetime import datetime
 import certifi
@@ -22,7 +23,7 @@ from pymongo.server_api import ServerApi
 # 기본 설정
 # ---------------------------------
 st.set_page_config(
-    page_title="내 AI 챗봇",
+    page_title="CUSTOM 챗봇",
     page_icon="🤖",
     layout="wide"
 )
@@ -36,7 +37,7 @@ section[data-testid="stSidebar"] {
     width: 320px !important;
 }
 .chat-title {
-    font-size: clamp(1.6rem, 2.8vw, 2.3rem);
+    font-size: clamp(1.35rem, 2.2vw, 1.9rem);
     font-weight: 800;
     margin-bottom: 1rem;
     line-height: 1.25;
@@ -118,7 +119,7 @@ section[data-testid="stSidebar"] {
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="chat-title">🤖 내 AI 챗봇</div>', unsafe_allow_html=True)
+st.markdown('<div class="chat-title">🤖 CUSTOM 챗봇</div>', unsafe_allow_html=True)
 
 # ---------------------------------
 # MongoDB
@@ -1317,6 +1318,9 @@ if "is_generating" not in st.session_state:
 if "stop_generation" not in st.session_state:
     st.session_state.stop_generation = False
 
+if "last_paste_signature" not in st.session_state:
+    st.session_state.last_paste_signature = ""
+
 # ---------------------------------
 # 로그인 화면
 # ---------------------------------
@@ -1363,6 +1367,7 @@ with st.sidebar:
         st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
         st.session_state.last_generated_images = []
         st.session_state.last_generated_prompt = ""
+        st.session_state.last_paste_signature = ""
         if "current_chat_id" in st.session_state:
             del st.session_state["current_chat_id"]
         st.rerun()
@@ -1378,6 +1383,7 @@ with st.sidebar:
         st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
         st.session_state.last_generated_images = []
         st.session_state.last_generated_prompt = ""
+        st.session_state.last_paste_signature = ""
         st.rerun()
 
     st.divider()
@@ -1394,6 +1400,7 @@ with st.sidebar:
                 st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
                 st.session_state.last_generated_images = []
                 st.session_state.last_generated_prompt = ""
+                st.session_state.last_paste_signature = ""
                 st.rerun()
 
         with col2:
@@ -1420,7 +1427,7 @@ with st.sidebar:
         )
         col_apply, col_clear = st.columns(2)
         with col_apply:
-            apply_clicked = st.form_submit_button("역할 적용하기", use_container_width=True)
+            apply_clicked = st.form_submit_button("적용하기", use_container_width=True)
         with col_clear:
             clear_clicked = st.form_submit_button("역할 비우기", use_container_width=True)
 
@@ -1564,7 +1571,7 @@ OCR 전처리 텍스트는 제공하지 않으니, 필요한 경우 이미지 �
 
     if st.button("첨부 파일 비우기"):
         st.session_state.uploaded_files_cache = []
-        st.session_state.last_chat_upload_signature = ""
+        st.session_state.last_paste_signature = ""
         st.rerun()
 else:
     st.info("업로드된 파일 없음")
@@ -1625,7 +1632,7 @@ legacy_chat_uploader_files = []
 try:
     chat_payload = st.chat_input(
         "메시지를 입력하세요 (파일/스크린샷 첨부 가능)",
-        accept_file=True,
+        accept_file="multiple",
         key="main_chat_input_with_file",
     )
 except Exception:
@@ -1642,6 +1649,18 @@ except Exception:
         label_visibility="collapsed",
     ) or []
 
+# chat_input Ctrl+V가 브라우저에서 막히는 경우를 위한 채팅 하단 붙여넣기 보조 입력
+paste_capture_files = st.file_uploader(
+    "채팅창 Ctrl+V 붙여넣기 보조 (이미지)",
+    type=["png", "jpg", "jpeg", "webp"],
+    accept_multiple_files=True,
+    key="chat_paste_capture",
+    help="채팅 입력창 Ctrl+V가 안 될 때 여기에 Ctrl+V로 붙여넣어 주세요.",
+)
+if st.button("붙여넣기 초기화", key="reset_paste_capture"):
+    st.session_state.last_paste_signature = ""
+    st.rerun()
+
 user_input = None
 chat_input_files = []
 
@@ -1655,7 +1674,25 @@ if legacy_chat_uploader_files:
     chat_input_files = list(legacy_chat_uploader_files)
 
 submitted_text = (user_input or "").strip()
-has_chat_submission = bool(submitted_text) or bool(chat_input_files)
+
+def _files_signature(files):
+    if not files:
+        return ""
+    parts = []
+    for f in files:
+        raw = f.getvalue()
+        digest = hashlib.sha1(raw).hexdigest()
+        parts.append(f"{getattr(f, 'name', 'file')}:{digest}")
+    return "|".join(parts)
+
+paste_signature = _files_signature(paste_capture_files or [])
+has_new_paste = bool(paste_capture_files) and (paste_signature != st.session_state.last_paste_signature)
+
+if has_new_paste:
+    chat_input_files.extend(list(paste_capture_files))
+    st.session_state.last_paste_signature = paste_signature
+
+has_chat_submission = bool(submitted_text) or bool(chat_input_files) or has_new_paste
 
 if has_chat_submission:
     if chat_input_files:
