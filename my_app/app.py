@@ -1412,14 +1412,30 @@ with st.sidebar:
     st.header("Agent 역할")
     sidebar_chat_data = load_chat(st.session_state.current_chat_id)
     current_agent_role = sidebar_chat_data.get("agent_role", "")
-    edited_agent_role = st.text_input(
+    agent_role_key = f"agent_role_input_{st.session_state.current_chat_id}"
+    if agent_role_key not in st.session_state:
+        st.session_state[agent_role_key] = current_agent_role
+
+    st.text_input(
         "이 대화의 역할",
-        value=current_agent_role,
         placeholder="예: 너는 서비스 기획자야. 기획자 관점으로 답변해줘.",
-        key=f"agent_role_input_{st.session_state.current_chat_id}"
+        key=agent_role_key
     )
-    if edited_agent_role != current_agent_role:
-        update_chat_agent_role(st.session_state.current_chat_id, edited_agent_role)
+    col_apply, col_clear = st.columns(2)
+    with col_apply:
+        if st.button("역할 적용하기", use_container_width=True):
+            update_chat_agent_role(
+                st.session_state.current_chat_id,
+                st.session_state.get(agent_role_key, "")
+            )
+            st.success("이 대화의 Agent 역할이 적용되었습니다.")
+            st.rerun()
+    with col_clear:
+        if st.button("역할 비우기", use_container_width=True):
+            st.session_state[agent_role_key] = ""
+            update_chat_agent_role(st.session_state.current_chat_id, "")
+            st.success("Agent 역할을 비웠습니다.")
+            st.rerun()
 
     st.caption("예시: '너는 PM이야', '너는 마케팅 카피라이터야', '너는 여행 플래너야'")
 
@@ -1612,14 +1628,15 @@ legacy_chat_uploader_files = []
 try:
     chat_payload = st.chat_input(
         "메시지를 입력하세요 (파일/스크린샷 첨부 가능)",
-        accept_file="multiple",
+        accept_file=True,
+        key="main_chat_input_with_file",
     )
 except Exception:
     st.warning(
         "현재 실행 환경에서는 채팅창 첨부가 제한됩니다. "
         "아래 '파일 첨부(호환 모드)'를 이용해주세요."
     )
-    chat_payload = st.chat_input("메시지를 입력하세요")
+    chat_payload = st.chat_input("메시지를 입력하세요", key="main_chat_input_fallback")
     legacy_chat_uploader_files = st.file_uploader(
         "파일 첨부(호환 모드)",
         type=chat_input_file_types,
