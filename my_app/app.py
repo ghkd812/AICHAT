@@ -1624,49 +1624,23 @@ if st.session_state.last_preview_html:
 # ---------------------------------
 # 사용자 입력 (채팅창 첨부 지원)
 # ---------------------------------
-st.caption("💡 Ctrl+V로 이미지를 붙여넣고 Enter로 바로 전송할 수 있어요. 안 되면 아래 호환 모드를 사용해 주세요.")
+# ---------------------------------
+# 사용자 입력 (최종 통합)
+# ---------------------------------
+st.caption("💡 Ctrl+V 이미지 붙여넣기 + 📎 파일 첨부 가능")
 
-if st.session_state.is_generating:
-    if st.button("⏹ 응답 멈춤", use_container_width=True):
-        st.session_state.stop_generation = True
-        st.rerun()
-
-chat_input_file_types = [
-    "pdf", "xlsx", "xls", "csv",
-    "pptx", "docx", "txt",
-    "png", "jpg", "jpeg", "webp"
-]
-
-def _to_uploaded_like_from_prompt_image(img, index):
-    mime_type = getattr(img, "mime_type", None) or getattr(img, "type", None) or "image/png"
-    fmt = (getattr(img, "format", None) or "").lower()
-    data = getattr(img, "data", None)
-
-    if not data:
-        return None
-
-    try:
-        if fmt == "base64":
-            raw = base64.b64decode(data)
-        elif isinstance(data, bytes):
-            raw = data
-        else:
-            raw = str(data).encode("utf-8")
-    except Exception:
-        return None
-
-    ext = mime_type.split("/")[-1] if "/" in mime_type else "png"
-    fake_file = io.BytesIO(raw)
-    fake_file.name = f"pasted_image_{index}.{ext}"
-    fake_file.type = mime_type
-    fake_file.seek(0)
-    return fake_file
+# 채팅용 파일 첨부
+chat_attach_files = st.file_uploader(
+    "📎 채팅 첨부 파일",
+    type=chat_input_file_types,
+    accept_multiple_files=True,
+    key="chat_attach_files"
+) or []
 
 user_input = ""
 chat_input_files = []
-prompt_result = None
-legacy_chat_uploader_files = []
 
+# Ctrl+V 채팅창
 if CHAT_PROMPT_AVAILABLE:
     prompt_result = st_chat_prompt(
         name="main_chat_prompt_component",
@@ -1678,90 +1652,36 @@ if CHAT_PROMPT_AVAILABLE:
 
     if prompt_result:
         user_input = (getattr(prompt_result, "text", "") or "").strip()
-        prompt_images = getattr(prompt_result, "images", None) or []
+
+        # 붙여넣기 이미지 처리
+        prompt_images = getattr(prompt_result, "images", []) or []
 
         for idx, img in enumerate(prompt_images, start=1):
             fake_file = _to_uploaded_like_from_prompt_image(img, idx)
-            if fake_file is not None:
+            if fake_file:
                 chat_input_files.append(fake_file)
 else:
-    st.caption(f"현재 Ctrl+V 전용 입력 컴포넌트를 불러오지 못했습니다: {CHAT_PROMPT_IMPORT_ERROR}")
+    st.error(f"❌ chat prompt 로드 실패: {CHAT_PROMPT_IMPORT_ERROR}")
 
-try:
-    chat_payload = st.chat_input(
-        "메시지를 입력하세요 (호환 모드 파일 첨부 가능)",
-        accept_file="multiple",
-        key="main_chat_input_with_file",
-    )
-except Exception:
-    chat_payload = st.chat_input("메시지를 입력하세요", key="main_chat_input_fallback")
-    legacy_chat_uploader_files = st.file_uploader(
-        "파일 첨부(호환 모드)",
-        type=chat_input_file_types,
-        accept_multiple_files=True,
-        key="legacy_chat_uploader",
-        label_visibility="collapsed",
-    ) or []
-
-if isinstance(chat_payload, str):
-    if not user_input:
-        user_input = chat_payload.strip()
-elif chat_payload is not None:
-    payload_text = (getattr(chat_payload, "text", "") or "").strip()
-    if payload_text and not user_input:
-        user_input = payload_text
-    payload_files = list(getattr(chat_payload, "files", []) or [])
-    if payload_files:
-        chat_input_files.extend(payload_files)
-
-if legacy_chat_uploader_files:
-    chat_input_files.extend(list(legacy_chat_uploader_files))
-
-paste_capture_files = st.file_uploader(
-    "붙여넣기 호환 모드 (이미지)",
-    type=["png", "jpg", "jpeg", "webp"],
-    accept_multiple_files=True,
-    key="chat_paste_capture",
-    help="브라우저에서 채팅창 Ctrl+V가 안 먹히면 여기에 붙여넣어 주세요.",
-)
-if st.button("붙여넣기 초기화", key="reset_paste_capture"):
-    st.session_state.last_paste_signature = ""
-    st.rerun()
-
-def _files_signature(files):
-    if not files:
-        return ""
-    parts = []
-    for f in files:
-        try:
-            raw = f.getvalue()
-        except Exception:
-            f.seek(0)
-            raw = f.read()
-            f.seek(0)
-        digest = hashlib.sha1(raw).hexdigest()
-        parts.append(f"{getattr(f, 'name', 'file')}:{digest}")
-    return "|".join(parts)
-
-paste_signature = _files_signature(paste_capture_files or [])
-has_new_paste = bool(paste_capture_files) and (paste_signature != st.session_state.last_paste_signature)
-
-if has_new_paste:
-    chat_input_files.extend(list(paste_capture_files))
-    st.session_state.last_paste_signature = paste_signature
+# 📎 파일 첨부 합치기
+if chat_attach_files:
+    chat_input_files.extend(chat_attach_files)
 
 # 중복 제거
 unique_files = []
-seen_signatures = set()
+seen = set()
+
 for f in chat_input_files:
-    sig = _files_signature([f])
-    if sig and sig not in seen_signatures:
-        seen_signatures.add(sig)
+    sig = getattr(f, "name", "") + str(len(f.getvalue()) if hasattr(f, "getvalue") else "")
+    if sig not in seen:
+        seen.add(sig)
         unique_files.append(f)
+
 chat_input_files = unique_files
 
+# 제출 판단
 submitted_text = (user_input or "").strip()
-has_chat_submission = bool(submitted_text) or bool(chat_input_files) or has_new_paste
+has_chat_submission = bool(submitted_text) or bool(chat_input_files)
 
 if has_chat_submission:
     if chat_input_files:
