@@ -1292,7 +1292,7 @@ if "answer_length" not in st.session_state:
     st.session_state.answer_length = "보통"
 
 if "model_name" not in st.session_state:
-    st.session_state.model_name = "gpt-4.1-mini"
+    st.session_state.model_name = "gpt-5.4-mini"
 
 if "last_result_df" not in st.session_state:
     st.session_state.last_result_df = None
@@ -1455,9 +1455,9 @@ with st.sidebar:
     st.divider()
     st.header("답변 설정")
 
-    model_options = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1", "gpt-5.4"]
+    model_options = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1", "gpt-5.4", "gpt-5.4 mini", "gpt5.4 nano"]
     if st.session_state.model_name not in model_options:
-        st.session_state.model_name = "gpt-4.1-mini"
+        st.session_state.model_name = "gpt-5.4-mini"
 
     st.session_state.model_name = st.selectbox(
         "모델",
