@@ -1535,7 +1535,7 @@ if active_files:
 
             elif ext in ["xlsx", "xls"]:
                 excel_text, previews = read_excel(f)
-                file_context += f"\n\n[EXCEL: {f.name}]\n{excel_text}"
+                file_context += f"\n\n[EXCEL: {f.name}]\n{excel_text}
                 for sheet_name, df in previews:
                     with st.expander(f"미리보기: {f.name} / {sheet_name}", expanded=False):
                         st.dataframe(df, use_container_width=True)
@@ -1789,7 +1789,7 @@ if has_chat_submission:
                             current_file_context += f"""
 
 [EXCEL: {f.name}]
-{excel_text}"
+{excel_text}
 
                         elif ext == "csv":
                             csv_text, preview_df = read_csv(f)
