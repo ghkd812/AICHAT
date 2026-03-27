@@ -12,6 +12,12 @@ import pandas as pd
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
+from docx import Document
+from openai import OpenAI
+from pypdf import PdfReader
+from pptx import Presentation
+from pymongo import MongoClient
+from pymongo.server_api import ServerApi
 
 try:
     from streamlit_chat_prompt import prompt as st_chat_prompt
@@ -21,12 +27,6 @@ except Exception as e:
     st_chat_prompt = None
     CHAT_PROMPT_AVAILABLE = False
     CHAT_PROMPT_IMPORT_ERROR = repr(e)
-from docx import Document
-from openai import OpenAI
-from pypdf import PdfReader
-from pptx import Presentation
-from pymongo import MongoClient
-from pymongo.server_api import ServerApi
 
 # ---------------------------------
 # 기본 설정
@@ -1329,10 +1329,6 @@ if "stop_generation" not in st.session_state:
 
 if "last_paste_signature" not in st.session_state:
     st.session_state.last_paste_signature = ""
-if "pending_extra_files" not in st.session_state:
-    st.session_state.pending_extra_files = []
-if "show_extra_uploader" not in st.session_state:
-    st.session_state.show_extra_uploader = False
 
 # ---------------------------------
 # 로그인 화면
@@ -1626,82 +1622,110 @@ if st.session_state.last_preview_html:
             st.code(blocks["js"], language="javascript")
 
 # ---------------------------------
-# 사용자 입력 (Ctrl+V + 이미지 첨부 + 일반 파일 다중 첨부)
+# 사용자 입력
+# - 상단/별도 첨부 영역: 기존 이미지 분석 전용 업로더 유지
+# - 채팅창: + 버튼 이미지 첨부 + Ctrl+V 붙여넣기 통합
 # ---------------------------------
-st.caption("💡 Ctrl+V로 이미지를 붙여넣고 Enter로 보낼 수 있어요. 일반 파일은 아래 파일 버튼으로 여러 개 첨부할 수 있어요.")
+st.caption("💡 채팅창에서 + 버튼으로 이미지 첨부 또는 Ctrl+V로 붙여넣기 후 Enter로 전송할 수 있어요.")
 
 if st.session_state.is_generating:
     if st.button("⏹ 응답 멈춤", use_container_width=True):
         st.session_state.stop_generation = True
         st.rerun()
 
-chat_input_file_types = [
-    "pdf", "xlsx", "xls", "csv",
-    "pptx", "docx", "txt",
-    "png", "jpg", "jpeg", "webp"
-]
+def _to_uploaded_like_from_prompt_image(img, index):
+    mime_type = getattr(img, "mime_type", None) or getattr(img, "type", None) or "image/png"
+    fmt = (getattr(img, "format", None) or "").lower()
+    data = getattr(img, "data", None)
 
-file_bar_col1, file_bar_col2 = st.columns([1, 5])
-with file_bar_col1:
-    if st.button("📎 파일", key="toggle_extra_uploader"):
-        st.session_state.show_extra_uploader = not st.session_state.show_extra_uploader
+    if not data:
+        return None
 
-with file_bar_col2:
-    if st.session_state.pending_extra_files:
-        st.caption(f"첨부 대기 파일 {len(st.session_state.pending_extra_files)}개")
+    try:
+        if fmt == "base64":
+            raw = base64.b64decode(data)
+        elif isinstance(data, bytes):
+            raw = data
+        else:
+            raw = str(data).encode("utf-8")
+    except Exception:
+        return None
 
-extra_files = []
-if st.session_state.show_extra_uploader:
-    extra_files = st.file_uploader(
-        "일반 파일 여러 개 첨부",
-        type=chat_input_file_types,
-        accept_multiple_files=True,
-        key="extra_file_uploader",
-    ) or []
-    st.session_state.pending_extra_files = list(extra_files)
+    ext = mime_type.split("/")[-1] if "/" in mime_type else "png"
+    fake_file = io.BytesIO(raw)
+    fake_file.name = f"chat_image_{index}.{ext}"
+    fake_file.type = mime_type
+    fake_file.seek(0)
+    return fake_file
 
-    if extra_files:
-        with st.expander("첨부 대기 파일 보기", expanded=False):
-            for f in extra_files:
-                st.write(f"• {getattr(f, 'name', '파일')}")
+def _files_signature(files):
+    if not files:
+        return ""
+    parts = []
+    for f in files:
+        try:
+            raw = f.getvalue()
+        except Exception:
+            try:
+                f.seek(0)
+            except Exception:
+                pass
+            raw = f.read()
+            try:
+                f.seek(0)
+            except Exception:
+                pass
+        digest = hashlib.sha1(raw).hexdigest()
+        parts.append(f"{getattr(f, 'name', 'file')}:{digest}")
+    return "|".join(parts)
 
 user_input = ""
 chat_input_files = []
 prompt_result = None
+has_new_paste = False
 
 if CHAT_PROMPT_AVAILABLE:
     prompt_result = st_chat_prompt(
         name="main_chat_prompt_component",
         key="main_chat_prompt_component",
-        placeholder="메시지를 입력하거나 Ctrl+V로 이미지를 붙여넣으세요",
+        placeholder="메시지를 입력하거나 이미지를 첨부/붙여넣으세요",
         main_bottom=True,
-        disabled=False,
+        disabled=st.session_state.is_generating,
     )
 
     if prompt_result:
         user_input = (getattr(prompt_result, "text", "") or "").strip()
-        pasted_images = getattr(prompt_result, "images", []) or []
+        prompt_images = getattr(prompt_result, "images", None) or []
 
-        for i, img in enumerate(pasted_images):
-            try:
-                if getattr(img, "format", "") == "base64":
-                    image_bytes = base64.b64decode(img.data)
-                    fake_file = io.BytesIO(image_bytes)
-                    fake_file.name = f"pasted_image_{i+1}.png"
-                    fake_file.type = getattr(img, "type", "image/png") or "image/png"
-                    chat_input_files.append(fake_file)
-            except Exception as e:
-                st.error(f"붙여넣은 이미지 처리 오류: {e}")
+        for idx, img in enumerate(prompt_images, start=1):
+            fake_file = _to_uploaded_like_from_prompt_image(img, idx)
+            if fake_file is not None:
+                chat_input_files.append(fake_file)
+
+        has_new_paste = bool(prompt_images)
 else:
-    st.warning(f"이미지 붙여넣기 입력창 로드 실패: {CHAT_PROMPT_IMPORT_ERROR}")
-    fallback_text = st.chat_input("메시지를 입력하세요", key="main_chat_input_fallback")
-    user_input = (fallback_text or "").strip()
+    st.caption(f"현재 Ctrl+V / 채팅창 이미지 첨부 컴포넌트를 불러오지 못했습니다: {CHAT_PROMPT_IMPORT_ERROR}")
+    fallback_payload = st.chat_input("메시지를 입력하세요", key="main_chat_input_fallback_only")
+    if isinstance(fallback_payload, str):
+        user_input = fallback_payload.strip()
+    elif fallback_payload is not None:
+        user_input = (getattr(fallback_payload, "text", "") or "").strip()
+        payload_files = list(getattr(fallback_payload, "files", []) or [])
+        if payload_files:
+            chat_input_files.extend(payload_files)
 
-if st.session_state.pending_extra_files:
-    chat_input_files.extend(list(st.session_state.pending_extra_files))
+# 중복 제거
+unique_files = []
+seen_signatures = set()
+for f in chat_input_files:
+    sig = _files_signature([f])
+    if sig and sig not in seen_signatures:
+        seen_signatures.add(sig)
+        unique_files.append(f)
+chat_input_files = unique_files
 
 submitted_text = (user_input or "").strip()
-has_chat_submission = bool(submitted_text) or bool(chat_input_files)
+has_chat_submission = bool(submitted_text) or bool(chat_input_files) or has_new_paste
 
 if has_chat_submission:
     if chat_input_files:
@@ -1727,18 +1751,16 @@ if has_chat_submission:
         st.write(submitted_text)
         if chat_input_files:
             for f in chat_input_files:
-                ext = (getattr(f, "name", "").split(".")[-1].lower() if getattr(f, "name", None) else "")
+                file_name = getattr(f, "name", "첨부 파일")
+                ext = file_name.split(".")[-1].lower() if "." in file_name else ""
                 if ext in ["png", "jpg", "jpeg", "webp"]:
                     try:
                         f.seek(0)
                     except Exception:
                         pass
-                    try:
-                        st.image(f, caption=getattr(f, "name", "image"), width=220)
-                    except Exception:
-                        st.caption(f"이미지 첨부: {getattr(f, 'name', 'image')}")
+                    st.image(f, caption=file_name, width=220)
                 else:
-                    st.caption(f"첨부 파일: {getattr(f, 'name', '파일')}")
+                    st.caption(f"첨부 파일: {file_name}")
 
     with st.chat_message("assistant", avatar=get_chat_avatar("assistant")):
         placeholder = st.empty()
@@ -1891,8 +1913,6 @@ if has_chat_submission:
 
         messages.append({"role": "assistant", "content": full_text})
         append_message(chat_id, "assistant", full_text)
-        st.session_state.pending_extra_files = []
-        st.session_state.show_extra_uploader = False
 
         if generated_images:
             render_generated_images(generated_images)
