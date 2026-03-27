@@ -1,5 +1,5 @@
 import os
-import io
+import io import BytesIO
 import json
 import re
 import base64
@@ -12,17 +12,21 @@ import pandas as pd
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
-
 try:
-    from streamlit_chat_prompt import chat_prompt
+    from streamlit_chat_prompt import prompt
     CHAT_PROMPT_AVAILABLE = True
     CHAT_PROMPT_IMPORT_ERROR = None
 except Exception as e:
+    prompt = None
     CHAT_PROMPT_AVAILABLE = False
     CHAT_PROMPT_IMPORT_ERROR = repr(e)
 
-st.write(CHAT_PROMPT_AVAILABLE)
-st.write(CHAT_PROMPT_IMPORT_ERROR)
+st.write("CHAT_PROMPT_AVAILABLE =", CHAT_PROMPT_AVAILABLE)
+st.write("CHAT_PROMPT_IMPORT_ERROR =", CHAT_PROMPT_IMPORT_ERROR)
+
+user_input = ""
+chat_input_files = []
+
 from docx import Document
 from openai import OpenAI
 from pypdf import PdfReader
@@ -1294,7 +1298,7 @@ if "answer_length" not in st.session_state:
     st.session_state.answer_length = "보통"
 
 if "model_name" not in st.session_state:
-    st.session_state.model_name = "gpt-4.1-mini"
+    st.session_state.model_name = "gpt-5.4 mini"
 
 if "last_result_df" not in st.session_state:
     st.session_state.last_result_df = None
@@ -1460,9 +1464,9 @@ with st.sidebar:
     st.divider()
     st.header("답변 설정")
 
-    model_options = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1", "gpt-5.4"]
+    model_options = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1", "gpt-5.4", "gpt-5.4 mini", "gpt-5.4 nano"]
     if st.session_state.model_name not in model_options:
-        st.session_state.model_name = "gpt-4.1-mini"
+        st.session_state.model_name = "gpt-5.4-mini"
 
     st.session_state.model_name = st.selectbox(
         "모델",
@@ -1651,9 +1655,12 @@ chat_input_files = []
 
 # 1) 커스텀 채팅 프롬프트 사용 (Ctrl+V 이미지 붙여넣기 지원)
 if CHAT_PROMPT_AVAILABLE:
-    prompt_result = chat_prompt(
+    prompt_result = prompt(
+        name="main_chat_prompt_component",
         key="main_chat_prompt_component",
         placeholder="메시지를 입력하거나 Ctrl+V로 이미지를 붙여넣으세요",
+        main_bottom=True,
+        disabled=False,
     )
 
     if prompt_result:
