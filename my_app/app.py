@@ -1779,48 +1779,48 @@ if has_chat_submission:
                     try:
                         if ext == "pdf":
                             text = read_pdf(f)
-                            current_file_context += f"
+                            current_file_context += f"""
 
 [PDF: {f.name}]
 {text}"
 
                         elif ext in ["xlsx", "xls"]:
                             excel_text, previews = read_excel(f)
-                            current_file_context += f"
+                            current_file_context += f"""
 
 [EXCEL: {f.name}]
 {excel_text}"
 
                         elif ext == "csv":
                             csv_text, preview_df = read_csv(f)
-                            current_file_context += f"
+                            current_file_context += f"""
 
 [CSV: {f.name}]
 {csv_text}"
 
                         elif ext == "pptx":
                             text = read_ppt(f)
-                            current_file_context += f"
+                            current_file_context += f"""
 
 [PPTX: {f.name}]
 {text}"
 
                         elif ext == "docx":
                             text = read_docx(f)
-                            current_file_context += f"
+                            current_file_context += f"""
 
 [DOCX: {f.name}]
 {text}"
 
                         elif ext == "txt":
                             text = read_txt(f)
-                            current_file_context += f"
+                            current_file_context += f"""
 
 [TXT: {f.name}]
 {text}"
 
                         elif ext in ["png", "jpg", "jpeg", "webp"]:
-                            current_file_context += f"""
+                            current_file_context += f"""""
 [이미지 파일: {f.name}]
 이 이미지는 사용자가 첨부한 원본 이미지입니다.
 OCR 전처리 텍스트는 제공하지 않으니, 필요한 경우 이미지 자체를 직접 분석하세요.
