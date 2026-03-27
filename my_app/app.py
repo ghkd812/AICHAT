@@ -1625,6 +1625,10 @@ if st.session_state.last_preview_html:
 # ---------------------------------
 # 사용자 입력 (채팅창 첨부 지원 + Ctrl+V 전용 컴포넌트)
 # ---------------------------------
+
+st.write("CHAT_PROMPT_AVAILABLE =", CHAT_PROMPT_AVAILABLE)
+st.write("prompt_result =", prompt_result if 'prompt_result' in locals() else None)
+
 st.caption("💡 채팅 입력창에서 Ctrl+V로 이미지 붙여넣기 후 Enter로 바로 보낼 수 있어요.")
 
 if st.session_state.is_generating:
