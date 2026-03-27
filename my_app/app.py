@@ -1624,7 +1624,7 @@ if st.session_state.last_preview_html:
 # ---------------------------------
 # 사용자 입력 (채팅창 첨부 지원)
 # ---------------------------------
-st.caption("💡 Ctrl+V로 이미지를 붙여넣고 Enter로 바로 전송할 수 있어요. 안 되면 아래 호환 모드를 사용해 주세요.")
+st.caption("💡 아래 단일 채팅창에서 +(파일 첨부)와 Ctrl+V 이미지를 함께 사용해 주세요.")
 
 if st.session_state.is_generating:
     if st.button("⏹ 응답 멈춤", use_container_width=True):
@@ -1637,55 +1637,12 @@ chat_input_file_types = [
     "png", "jpg", "jpeg", "webp"
 ]
 
-def _to_uploaded_like_from_prompt_image(img, index):
-    mime_type = getattr(img, "mime_type", None) or getattr(img, "type", None) or "image/png"
-    fmt = (getattr(img, "format", None) or "").lower()
-    data = getattr(img, "data", None)
-
-    if not data:
-        return None
-
-    try:
-        if fmt == "base64":
-            raw = base64.b64decode(data)
-        elif isinstance(data, bytes):
-            raw = data
-        else:
-            raw = str(data).encode("utf-8")
-    except Exception:
-        return None
-
-    ext = mime_type.split("/")[-1] if "/" in mime_type else "png"
-    fake_file = io.BytesIO(raw)
-    fake_file.name = f"pasted_image_{index}.{ext}"
-    fake_file.type = mime_type
-    fake_file.seek(0)
-    return fake_file
-
 user_input = ""
 chat_input_files = []
-prompt_result = None
 legacy_chat_uploader_files = []
 
-if CHAT_PROMPT_AVAILABLE:
-    prompt_result = st_chat_prompt(
-        name="main_chat_prompt_component",
-        key="main_chat_prompt_component",
-        placeholder="메시지를 입력하거나 Ctrl+V로 이미지를 붙여넣으세요",
-        main_bottom=True,
-        disabled=st.session_state.is_generating,
-    )
-
-    if prompt_result:
-        user_input = (getattr(prompt_result, "text", "") or "").strip()
-        prompt_images = getattr(prompt_result, "images", None) or []
-
-        for idx, img in enumerate(prompt_images, start=1):
-            fake_file = _to_uploaded_like_from_prompt_image(img, idx)
-            if fake_file is not None:
-                chat_input_files.append(fake_file)
-else:
-    st.caption(f"현재 Ctrl+V 전용 입력 컴포넌트를 불러오지 못했습니다: {CHAT_PROMPT_IMPORT_ERROR}")
+if not CHAT_PROMPT_AVAILABLE:
+    st.caption(f"Ctrl+V 전용 보조 컴포넌트를 불러오지 못했지만, 아래 단일 채팅창에서 일반 입력/첨부는 계속 사용할 수 있습니다: {CHAT_PROMPT_IMPORT_ERROR}")
 
 try:
     chat_payload = st.chat_input(
@@ -1717,17 +1674,6 @@ elif chat_payload is not None:
 if legacy_chat_uploader_files:
     chat_input_files.extend(list(legacy_chat_uploader_files))
 
-paste_capture_files = st.file_uploader(
-    "붙여넣기 호환 모드 (이미지)",
-    type=["png", "jpg", "jpeg", "webp"],
-    accept_multiple_files=True,
-    key="chat_paste_capture",
-    help="브라우저에서 채팅창 Ctrl+V가 안 먹히면 여기에 붙여넣어 주세요.",
-)
-if st.button("붙여넣기 초기화", key="reset_paste_capture"):
-    st.session_state.last_paste_signature = ""
-    st.rerun()
-
 def _files_signature(files):
     if not files:
         return ""
@@ -1743,13 +1689,6 @@ def _files_signature(files):
         parts.append(f"{getattr(f, 'name', 'file')}:{digest}")
     return "|".join(parts)
 
-paste_signature = _files_signature(paste_capture_files or [])
-has_new_paste = bool(paste_capture_files) and (paste_signature != st.session_state.last_paste_signature)
-
-if has_new_paste:
-    chat_input_files.extend(list(paste_capture_files))
-    st.session_state.last_paste_signature = paste_signature
-
 # 중복 제거
 unique_files = []
 seen_signatures = set()
@@ -1761,7 +1700,7 @@ for f in chat_input_files:
 chat_input_files = unique_files
 
 submitted_text = (user_input or "").strip()
-has_chat_submission = bool(submitted_text) or bool(chat_input_files) or has_new_paste
+has_chat_submission = bool(submitted_text) or bool(chat_input_files)
 
 if has_chat_submission:
     if chat_input_files:
