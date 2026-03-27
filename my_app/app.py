@@ -12,6 +12,13 @@ import pandas as pd
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
+
+try:
+    from streamlit_chat_prompt import chat_prompt
+    CHAT_PROMPT_AVAILABLE = True
+except Exception:
+    chat_prompt = None
+    CHAT_PROMPT_AVAILABLE = False
 from docx import Document
 from openai import OpenAI
 from pypdf import PdfReader
@@ -1321,6 +1328,9 @@ if "stop_generation" not in st.session_state:
 if "last_paste_signature" not in st.session_state:
     st.session_state.last_paste_signature = ""
 
+if "last_chat_prompt_files" not in st.session_state:
+    st.session_state.last_chat_prompt_files = []
+
 # ---------------------------------
 # 로그인 화면
 # ---------------------------------
@@ -1613,9 +1623,9 @@ if st.session_state.last_preview_html:
             st.code(blocks["js"], language="javascript")
 
 # ---------------------------------
-# 사용자 입력 (채팅창 첨부 지원)
+# 사용자 입력 (채팅창 첨부 지원 + Ctrl+V 전용 컴포넌트)
 # ---------------------------------
-st.caption("💡 채팅 입력창을 클릭한 뒤 Ctrl+V로 스크린샷 이미지를 바로 붙여넣을 수 있어요.")
+st.caption("💡 채팅 입력창에서 Ctrl+V로 이미지 붙여넣기 후 Enter로 바로 보낼 수 있어요.")
 
 if st.session_state.is_generating:
     if st.button("⏹ 응답 멈춤", use_container_width=True):
@@ -1628,71 +1638,89 @@ chat_input_file_types = [
     "png", "jpg", "jpeg", "webp"
 ]
 
-legacy_chat_uploader_files = []
-try:
-    chat_payload = st.chat_input(
-        "메시지를 입력하세요 (파일/스크린샷 첨부 가능)",
-        accept_file="multiple",
-        key="main_chat_input_with_file",
-    )
-except Exception:
-    st.warning(
-        "현재 실행 환경에서는 채팅창 첨부가 제한됩니다. "
-        "아래 '파일 첨부(호환 모드)'를 이용해주세요."
-    )
-    chat_payload = st.chat_input("메시지를 입력하세요", key="main_chat_input_fallback")
-    legacy_chat_uploader_files = st.file_uploader(
-        "파일 첨부(호환 모드)",
-        type=chat_input_file_types,
-        accept_multiple_files=True,
-        key="legacy_chat_uploader",
-        label_visibility="collapsed",
-    ) or []
-
-# chat_input Ctrl+V가 브라우저에서 막히는 경우를 위한 채팅 하단 붙여넣기 보조 입력
-paste_capture_files = st.file_uploader(
-    "채팅창 Ctrl+V 붙여넣기 보조 (이미지)",
-    type=["png", "jpg", "jpeg", "webp"],
-    accept_multiple_files=True,
-    key="chat_paste_capture",
-    help="채팅 입력창 Ctrl+V가 안 될 때 여기에 Ctrl+V로 붙여넣어 주세요.",
-)
-if st.button("붙여넣기 초기화", key="reset_paste_capture"):
-    st.session_state.last_paste_signature = ""
-    st.rerun()
-
-user_input = None
+user_input = ""
 chat_input_files = []
 
-if isinstance(chat_payload, str):
-    user_input = chat_payload
-elif chat_payload is not None:
-    user_input = chat_payload.text
-    chat_input_files = list(chat_payload.files or [])
+# 1) 커스텀 채팅 프롬프트 사용 (Ctrl+V 이미지 붙여넣기 지원)
+if CHAT_PROMPT_AVAILABLE:
+    prompt_result = chat_prompt(
+        key="main_chat_prompt_component",
+        placeholder="메시지를 입력하거나 Ctrl+V로 이미지를 붙여넣으세요",
+    )
 
-if legacy_chat_uploader_files:
-    chat_input_files = list(legacy_chat_uploader_files)
+    if prompt_result:
+        if isinstance(prompt_result, dict):
+            user_input = (prompt_result.get("text") or "").strip()
+            raw_files = prompt_result.get("files") or prompt_result.get("images") or []
+            if raw_files:
+                chat_input_files = list(raw_files)
+                st.session_state.last_chat_prompt_files = list(raw_files)
+        elif isinstance(prompt_result, str):
+            user_input = prompt_result.strip()
+
+# 2) 미설치/오류 시 기본 Streamlit 채팅 입력으로 fallback
+else:
+    legacy_chat_uploader_files = []
+    try:
+        chat_payload = st.chat_input(
+            "메시지를 입력하세요 (파일/스크린샷 첨부 가능)",
+            accept_file="multiple",
+            key="main_chat_input_with_file",
+        )
+    except Exception:
+        st.warning(
+            "현재 실행 환경에서는 채팅창 첨부가 제한됩니다. "
+            "아래 '파일 첨부(호환 모드)'를 이용해주세요."
+        )
+        chat_payload = st.chat_input("메시지를 입력하세요", key="main_chat_input_fallback")
+        legacy_chat_uploader_files = st.file_uploader(
+            "파일 첨부(호환 모드)",
+            type=chat_input_file_types,
+            accept_multiple_files=True,
+            key="legacy_chat_uploader",
+            label_visibility="collapsed",
+        ) or []
+
+    if isinstance(chat_payload, str):
+        user_input = chat_payload.strip()
+    elif chat_payload is not None:
+        user_input = (getattr(chat_payload, "text", "") or "").strip()
+        chat_input_files = list(getattr(chat_payload, "files", []) or [])
+
+    if legacy_chat_uploader_files:
+        chat_input_files = list(legacy_chat_uploader_files)
+
+    paste_capture_files = st.file_uploader(
+        "채팅창 Ctrl+V 붙여넣기 보조 (이미지)",
+        type=["png", "jpg", "jpeg", "webp"],
+        accept_multiple_files=True,
+        key="chat_paste_capture",
+        help="채팅 입력창 Ctrl+V가 안 될 때 여기에 Ctrl+V로 붙여넣어 주세요.",
+    )
+
+    if st.button("붙여넣기 초기화", key="reset_paste_capture"):
+        st.session_state.last_paste_signature = ""
+        st.rerun()
+
+    def _files_signature(files):
+        if not files:
+            return ""
+        parts = []
+        for f in files:
+            raw = f.getvalue()
+            digest = hashlib.sha1(raw).hexdigest()
+            parts.append(f"{getattr(f, 'name', 'file')}:{digest}")
+        return "|".join(parts)
+
+    paste_signature = _files_signature(paste_capture_files or [])
+    has_new_paste = bool(paste_capture_files) and (paste_signature != st.session_state.last_paste_signature)
+
+    if has_new_paste:
+        chat_input_files.extend(list(paste_capture_files))
+        st.session_state.last_paste_signature = paste_signature
 
 submitted_text = (user_input or "").strip()
-
-def _files_signature(files):
-    if not files:
-        return ""
-    parts = []
-    for f in files:
-        raw = f.getvalue()
-        digest = hashlib.sha1(raw).hexdigest()
-        parts.append(f"{getattr(f, 'name', 'file')}:{digest}")
-    return "|".join(parts)
-
-paste_signature = _files_signature(paste_capture_files or [])
-has_new_paste = bool(paste_capture_files) and (paste_signature != st.session_state.last_paste_signature)
-
-if has_new_paste:
-    chat_input_files.extend(list(paste_capture_files))
-    st.session_state.last_paste_signature = paste_signature
-
-has_chat_submission = bool(submitted_text) or bool(chat_input_files) or has_new_paste
+has_chat_submission = bool(submitted_text) or bool(chat_input_files)
 
 if has_chat_submission:
     if chat_input_files:
@@ -1717,6 +1745,17 @@ if has_chat_submission:
     with st.chat_message("user", avatar=get_chat_avatar("user")):
         st.write(submitted_text)
 
+        if chat_input_files:
+            for f in chat_input_files:
+                ext = f.name.split(".")[-1].lower() if getattr(f, "name", None) else ""
+                if ext in ["png", "jpg", "jpeg", "webp"]:
+                    try:
+                        st.image(f, caption=f.name if getattr(f, "name", None) else "붙여넣은 이미지", width=220)
+                    except Exception:
+                        pass
+                else:
+                    st.caption(f"첨부 파일: {getattr(f, 'name', '파일')}")
+
     with st.chat_message("assistant", avatar=get_chat_avatar("assistant")):
         placeholder = st.empty()
         full_text = ""
@@ -1730,6 +1769,72 @@ if has_chat_submission:
         do_search = runtime_state["do_search"]
 
         try:
+            current_file_context = ""
+            current_image_inputs = []
+
+            if chat_input_files:
+                for f in chat_input_files:
+                    ext = f.name.split(".")[-1].lower()
+
+                    try:
+                        if ext == "pdf":
+                            text = read_pdf(f)
+                            current_file_context += f"
+
+[PDF: {f.name}]
+{text}"
+
+                        elif ext in ["xlsx", "xls"]:
+                            excel_text, previews = read_excel(f)
+                            current_file_context += f"
+
+[EXCEL: {f.name}]
+{excel_text}"
+
+                        elif ext == "csv":
+                            csv_text, preview_df = read_csv(f)
+                            current_file_context += f"
+
+[CSV: {f.name}]
+{csv_text}"
+
+                        elif ext == "pptx":
+                            text = read_ppt(f)
+                            current_file_context += f"
+
+[PPTX: {f.name}]
+{text}"
+
+                        elif ext == "docx":
+                            text = read_docx(f)
+                            current_file_context += f"
+
+[DOCX: {f.name}]
+{text}"
+
+                        elif ext == "txt":
+                            text = read_txt(f)
+                            current_file_context += f"
+
+[TXT: {f.name}]
+{text}"
+
+                        elif ext in ["png", "jpg", "jpeg", "webp"]:
+                            current_file_context += f"""
+[이미지 파일: {f.name}]
+이 이미지는 사용자가 첨부한 원본 이미지입니다.
+OCR 전처리 텍스트는 제공하지 않으니, 필요한 경우 이미지 자체를 직접 분석하세요.
+여권, 비자, 신분증, 문서 이미지, 캡처 화면일 수 있으므로
+이름, 여권번호, 국적, 생년월일, 발급일, 만료일, 비자 종류, 체류기간 등의 정보가 보이면 정리하세요.
+"""
+                            current_image_inputs.append({
+                                "type": "input_image",
+                                "image_url": f"data:{f.type};base64,{image_to_base64(f)}"
+                            })
+
+                    except Exception as e:
+                        st.error(f"{f.name} 처리 중 오류: {e}")
+
             history_for_model = []
             for msg in messages[:-1]:
                 history_for_model.append({
@@ -1774,7 +1879,7 @@ if has_chat_submission:
 {submitted_text}
 
 첨부 파일 내용:
-{file_context if file_context else "첨부된 파일 없음"}
+{current_file_context if current_file_context else "첨부된 파일 없음"}
 """
 
                 if do_search and search_plan.get("use_local"):
@@ -1816,8 +1921,8 @@ if has_chat_submission:
                     }
                 ]
 
-                if image_inputs:
-                    user_content.extend(image_inputs)
+                if current_image_inputs:
+                    user_content.extend(current_image_inputs)
 
                 if do_search and search_plan.get("use_openai_web"):
                     full_text, openai_web_sources = run_openai_web_search(
@@ -1849,7 +1954,9 @@ if has_chat_submission:
 
                     for event in stream:
                         if st.session_state.stop_generation:
-                            full_text += "\n\n(사용자 요청으로 응답 생성을 중단했습니다.)"
+                            full_text += "
+
+(사용자 요청으로 응답 생성을 중단했습니다.)"
                             break
                         if event.type == "response.output_text.delta":
                             full_text += event.delta
