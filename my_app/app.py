@@ -16,9 +16,13 @@ import streamlit.components.v1 as components
 try:
     from streamlit_chat_prompt import chat_prompt
     CHAT_PROMPT_AVAILABLE = True
-except Exception:
-    chat_prompt = None
+    CHAT_PROMPT_IMPORT_ERROR = None
+except Exception as e:
     CHAT_PROMPT_AVAILABLE = False
+    CHAT_PROMPT_IMPORT_ERROR = repr(e)
+
+st.write(CHAT_PROMPT_AVAILABLE)
+st.write(CHAT_PROMPT_IMPORT_ERROR)
 from docx import Document
 from openai import OpenAI
 from pypdf import PdfReader
