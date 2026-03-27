@@ -1,5 +1,5 @@
 import os
-import io import BytesIO
+import io from BytesIO
 import json
 import re
 import base64
