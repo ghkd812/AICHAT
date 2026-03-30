@@ -18,6 +18,16 @@ from pptx import Presentation
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 
+st_chat_prompt = None
+CHAT_PROMPT_AVAILABLE = False
+CHAT_PROMPT_IMPORT_ERROR = None
+
+try:
+    from streamlit_chat_prompt import prompt as st_chat_prompt
+    CHAT_PROMPT_AVAILABLE = True
+except Exception as e:
+    CHAT_PROMPT_IMPORT_ERROR = repr(e)
+
 # ---------------------------------
 # 기본 설정
 # ---------------------------------
