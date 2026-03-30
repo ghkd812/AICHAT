@@ -1642,32 +1642,60 @@ if st.button("붙여넣기 초기화", key="reset_paste_capture"):
     st.session_state.last_paste_signature = ""
     st.rerun()
 
-try:
-    chat_payload = st.chat_input(
-        "메시지를 입력하세요 (Ctrl+V / 파일 첨부 가능)",
-        accept_file="multiple",
-        key="main_chat_input_with_file",
-    )
-except Exception:
-    chat_payload = st.chat_input("메시지를 입력하세요", key="main_chat_input_fallback")
-    legacy_chat_uploader_files = st.file_uploader(
-        "파일 첨부(호환 모드)",
-        type=chat_input_file_types,
-        accept_multiple_files=True,
-        key="legacy_chat_uploader",
-        label_visibility="collapsed",
-    ) or []
+def _to_uploaded_like_from_prompt_image(img, index):
+    mime_type = getattr(img, "mime_type", None) or getattr(img, "type", None) or "image/png"
+    fmt = (getattr(img, "format", None) or "").lower()
+    data = getattr(img, "data", None)
 
-if isinstance(chat_payload, str):
-    if not user_input:
-        user_input = chat_payload.strip()
-elif chat_payload is not None:
-    payload_text = (getattr(chat_payload, "text", "") or "").strip()
-    if payload_text and not user_input:
-        user_input = payload_text
-    payload_files = list(getattr(chat_payload, "files", []) or [])
-    if payload_files:
-        chat_input_files.extend(payload_files)
+    if not data:
+        return None
+
+    try:
+        if fmt == "base64":
+            raw = base64.b64decode(data)
+        elif isinstance(data, bytes):
+            raw = data
+        else:
+            raw = str(data).encode("utf-8")
+    except Exception:
+        return None
+
+    ext = mime_type.split("/")[-1] if "/" in mime_type else "png"
+    fake_file = io.BytesIO(raw)
+    fake_file.name = f"pasted_image_{index}.{ext}"
+    fake_file.type = mime_type
+    fake_file.seek(0)
+    return fake_file
+
+if CHAT_PROMPT_AVAILABLE:
+    prompt_result = st_chat_prompt(
+        name="main_chat_prompt_component",
+        key="main_chat_prompt_component",
+        placeholder="메시지를 입력하거나 Ctrl+V로 이미지를 붙여넣으세요",
+        main_bottom=True,
+        disabled=st.session_state.is_generating,
+    )
+
+    if prompt_result:
+        user_input = (getattr(prompt_result, "text", "") or "").strip()
+        prompt_images = getattr(prompt_result, "images", None) or []
+        for idx, img in enumerate(prompt_images, start=1):
+            fake_file = _to_uploaded_like_from_prompt_image(img, idx)
+            if fake_file is not None:
+                chat_input_files.append(fake_file)
+else:
+    st.caption(f"현재 Ctrl+V 전용 입력 컴포넌트를 불러오지 못했습니다: {CHAT_PROMPT_IMPORT_ERROR}")
+    fallback_text = st.chat_input("메시지를 입력하세요", key="main_chat_input_fallback")
+    if isinstance(fallback_text, str):
+        user_input = fallback_text.strip()
+
+legacy_chat_uploader_files = st.file_uploader(
+    "파일 첨부",
+    type=chat_input_file_types,
+    accept_multiple_files=True,
+    key="legacy_chat_uploader",
+    help="문서/PDF/엑셀/이미지 파일 첨부",
+) or []
 
 if legacy_chat_uploader_files:
     chat_input_files.extend(list(legacy_chat_uploader_files))
