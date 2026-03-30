@@ -1,5 +1,4 @@
 import os
-import io
 import json
 import re
 import base64
@@ -18,15 +17,6 @@ from pypdf import PdfReader
 from pptx import Presentation
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
-
-try:
-    from streamlit_chat_prompt import prompt as st_chat_prompt
-    CHAT_PROMPT_AVAILABLE = True
-    CHAT_PROMPT_IMPORT_ERROR = None
-except Exception as e:
-    st_chat_prompt = None
-    CHAT_PROMPT_AVAILABLE = False
-    CHAT_PROMPT_IMPORT_ERROR = repr(e)
 
 # ---------------------------------
 # 기본 설정
