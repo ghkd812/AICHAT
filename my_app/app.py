@@ -39,7 +39,7 @@ section[data-testid="stSidebar"] {
     font-size: clamp(1.35rem, 2.2vw, 1.9rem);
     font-weight: 800;
     margin-bottom: 1rem;
-    line-height: 1.8;
+    line-height: 3.0;
     white-space: normal !important;
     word-break: keep-all;
     overflow-wrap: anywhere;
