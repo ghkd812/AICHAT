@@ -308,6 +308,29 @@ def image_to_base64(file):
     file.seek(0)
     return base64.b64encode(file.getvalue()).decode()
 
+def build_message_attachments(files):
+    attachments = []
+    for f in files or []:
+        file_name = getattr(f, "name", "첨부 파일")
+        ext = file_name.split(".")[-1].lower() if "." in file_name else ""
+
+        item = {
+            "name": file_name,
+            "mime_type": getattr(f, "type", "") or "",
+            "ext": ext
+        }
+
+        if ext in ["png", "jpg", "jpeg", "webp"]:
+            mime = item["mime_type"] or f"image/{'jpeg' if ext == 'jpg' else ext}"
+            item["kind"] = "image"
+            item["data_url"] = f"data:{mime};base64,{image_to_base64(f)}"
+        else:
+            item["kind"] = "file"
+
+        attachments.append(item)
+
+    return attachments
+
 def build_file_context_and_images(files, show_previews: bool = True):
     file_context = ""
     image_inputs = []
@@ -1197,17 +1220,20 @@ def load_chat(chat_id: str):
 
     return get_default_chat_data()
 
-def append_message(chat_id: str, role: str, content: str):
+def append_message(chat_id: str, role: str, content: str, attachments=None):
     username = st.session_state.get("username", "guest")
+    message_payload = {
+        "role": role,
+        "content": content
+    }
+    if attachments:
+        message_payload["attachments"] = attachments
 
     get_chats_col().update_one(
         {"username": username, "chat_id": chat_id},
         {
             "$push": {
-                "messages": {
-                    "role": role,
-                    "content": content
-                }
+                "messages": message_payload
             },
             "$set": {
                 "updated_at": datetime.utcnow()
@@ -1598,6 +1624,13 @@ with st.expander("첨부 데이터 확인", expanded=False):
 for msg in messages:
     with st.chat_message(msg["role"], avatar=get_chat_avatar(msg["role"])):
         st.write(msg["content"])
+        attachments = msg.get("attachments", []) if isinstance(msg, dict) else []
+        if attachments:
+            for item in attachments:
+                if item.get("kind") == "image" and item.get("data_url"):
+                    st.image(item["data_url"], caption=item.get("name", "첨부 이미지"), width=220)
+                else:
+                    st.caption(f"첨부 파일: {item.get('name', '첨부 파일')}")
 
 # ---------------------------------
 # 마지막 HTML 미리보기 재표시
@@ -1809,6 +1842,8 @@ submitted_text = (user_input or "").strip()
 has_chat_submission = bool(submitted_text) or bool(chat_input_files)
 
 if has_chat_submission:
+    submitted_attachments = build_message_attachments(chat_input_files)
+
     if chat_input_files:
         st.session_state.uploaded_files_cache = chat_input_files
         if not submitted_text:
@@ -1831,22 +1866,16 @@ if has_chat_submission:
         current_data["title"] = new_title
         update_chat_title(chat_id, new_title)
 
-    append_message(chat_id, "user", submitted_text)
+    append_message(chat_id, "user", submitted_text, attachments=submitted_attachments)
 
     with st.chat_message("user", avatar=get_chat_avatar("user")):
         st.write(submitted_text)
-        if chat_input_files:
-            for f in chat_input_files:
-                file_name = getattr(f, "name", "첨부 파일")
-                ext = file_name.split(".")[-1].lower() if "." in file_name else ""
-                if ext in ["png", "jpg", "jpeg", "webp"]:
-                    try:
-                        f.seek(0)
-                    except Exception:
-                        pass
-                    st.image(f, caption=file_name, width=220)
+        if submitted_attachments:
+            for item in submitted_attachments:
+                if item.get("kind") == "image" and item.get("data_url"):
+                    st.image(item["data_url"], caption=item.get("name", "첨부 이미지"), width=220)
                 else:
-                    st.caption(f"첨부 파일: {file_name}")
+                    st.caption(f"첨부 파일: {item.get('name', '첨부 파일')}")
 
     with st.chat_message("assistant", avatar=get_chat_avatar("assistant")):
         placeholder = st.empty()
