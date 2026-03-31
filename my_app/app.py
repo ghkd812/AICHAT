@@ -601,6 +601,74 @@ def should_show_preview(user_input: str, response_text: str) -> bool:
 
     return has_keyword or has_html_block
 
+def render_preview_panel(preview_html: str, preview_blocks: dict, key_prefix: str):
+    st.subheader("🖥 HTML/CSS 미리보기")
+    if preview_blocks.get("html"):
+        st.markdown("**HTML (복사 버튼 옆 Play 지원)**")
+        html_block = preview_blocks["html"]
+        escaped_html_code = html.escape(html_block)
+        preview_payload = json.dumps(preview_html)
+        dom_id = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
+        components.html(
+            f"""
+            <div id="wrap-{dom_id}" style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#0b1020;">
+              <div style="display:flex;justify-content:flex-end;gap:8px;padding:8px 10px;background:#111827;border-bottom:1px solid #1f2937;">
+                <button id="copy-{dom_id}" style="border:1px solid #374151;background:#1f2937;color:#e5e7eb;border-radius:6px;padding:4px 10px;cursor:pointer;">Copy</button>
+                <button id="play-{dom_id}" style="border:1px solid #2563eb;background:#1d4ed8;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;">▶ Play</button>
+              </div>
+              <pre id="code-{dom_id}" style="margin:0;padding:12px;max-height:260px;overflow:auto;color:#e5e7eb;background:#0b1020;white-space:pre-wrap;">{escaped_html_code}</pre>
+              <div id="preview-wrap-{dom_id}" style="display:none;border-top:1px solid #1f2937;background:#fff;">
+                <iframe id="preview-{dom_id}" style="width:100%;height:420px;border:0;"></iframe>
+              </div>
+            </div>
+            <script>
+              (() => {{
+                const codeEl = document.getElementById("code-{dom_id}");
+                const copyBtn = document.getElementById("copy-{dom_id}");
+                const playBtn = document.getElementById("play-{dom_id}");
+                const previewWrap = document.getElementById("preview-wrap-{dom_id}");
+                const iframe = document.getElementById("preview-{dom_id}");
+                let playing = false;
+                const srcDoc = {preview_payload};
+
+                copyBtn?.addEventListener("click", async () => {{
+                  try {{
+                    await navigator.clipboard.writeText(codeEl?.innerText || "");
+                    copyBtn.textContent = "Copied!";
+                    setTimeout(() => (copyBtn.textContent = "Copy"), 900);
+                  }} catch (e) {{
+                    copyBtn.textContent = "Copy 실패";
+                    setTimeout(() => (copyBtn.textContent = "Copy"), 1200);
+                  }}
+                }});
+
+                playBtn?.addEventListener("click", () => {{
+                  playing = !playing;
+                  if (playing) {{
+                    previewWrap.style.display = "block";
+                    iframe.srcdoc = srcDoc;
+                    playBtn.textContent = "⏹ Stop";
+                  }} else {{
+                    iframe.srcdoc = "";
+                    previewWrap.style.display = "none";
+                    playBtn.textContent = "▶ Play";
+                  }}
+                }});
+              }})();
+            </script>
+            """,
+            height=740,
+            scrolling=False
+        )
+
+    if preview_blocks.get("css"):
+        st.markdown("**CSS**")
+        st.code(preview_blocks["css"], language="css")
+
+    if preview_blocks.get("js"):
+        st.markdown("**JavaScript**")
+        st.code(preview_blocks["js"], language="javascript")
+
 # ---------------------------------
 # 검색 유틸
 # ---------------------------------
@@ -1639,23 +1707,11 @@ if st.session_state.last_generated_images:
     render_generated_images(st.session_state.last_generated_images)
 
 if st.session_state.last_preview_html:
-    st.subheader("🖥 HTML/CSS 미리보기")
-    components.html(st.session_state.last_preview_html, height=700, scrolling=True)
-
-    with st.expander("미리보기 코드 보기", expanded=False):
-        blocks = st.session_state.last_preview_blocks
-
-        if blocks.get("html"):
-            st.markdown("**HTML**")
-            st.code(blocks["html"], language="html")
-
-        if blocks.get("css"):
-            st.markdown("**CSS**")
-            st.code(blocks["css"], language="css")
-
-        if blocks.get("js"):
-            st.markdown("**JavaScript**")
-            st.code(blocks["js"], language="javascript")
+    render_preview_panel(
+        st.session_state.last_preview_html,
+        st.session_state.last_preview_blocks,
+        key_prefix=f"chat_{st.session_state.current_chat_id}_last"
+    )
 
 # ---------------------------------
 # 사용자 입력 (채팅창 첨부 지원)
@@ -2084,22 +2140,11 @@ if has_chat_submission:
             if preview_html:
                 st.session_state.last_preview_html = preview_html
                 st.session_state.last_preview_blocks = preview_blocks
-
-                st.subheader("🖥 HTML/CSS 미리보기")
-                components.html(preview_html, height=700, scrolling=True)
-
-                with st.expander("미리보기 코드 보기", expanded=False):
-                    if preview_blocks.get("html"):
-                        st.markdown("**HTML**")
-                        st.code(preview_blocks["html"], language="html")
-
-                    if preview_blocks.get("css"):
-                        st.markdown("**CSS**")
-                        st.code(preview_blocks["css"], language="css")
-
-                    if preview_blocks.get("js"):
-                        st.markdown("**JavaScript**")
-                        st.code(preview_blocks["js"], language="javascript")
+                render_preview_panel(
+                    preview_html,
+                    preview_blocks,
+                    key_prefix=f"chat_{chat_id}_live"
+                )
             else:
                 if "```css" in full_text.lower() and "```html" not in full_text.lower():
                     st.info("CSS 코드만 있어서 미리보기는 생략했습니다. HTML 코드까지 같이 있으면 바로 렌더됩니다.")
