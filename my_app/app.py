@@ -1221,9 +1221,9 @@ def get_chat_avatar(role: str):
 # ---------------------------------
 def build_system_prompt(answer_length: str, agent_role: str = "") -> str:
     if answer_length == "짧게":
-        length_rule = "답변은 핵심만 2~3문장으로 간단히 설명한다."
+        length_rule = "답변은 핵심만 5~7문장으로 간단히 설명한다."
     elif answer_length == "보통":
-        length_rule = "답변은 3~6문장 정도로 설명한다."
+        length_rule = "답변은 8~12문장 정도로 설명한다."
     else:
         length_rule = "답변은 충분히 자세하게 설명하고, 필요하면 예시와 항목 정리를 포함한다."
 
@@ -1233,10 +1233,10 @@ def build_system_prompt(answer_length: str, agent_role: str = "") -> str:
 
     return f"""
 너는 친절하고 유능한 한국어 AI 챗봇이다.
-항상 한국어로 답변한다.
+물어보는 언어에 맞게 대답한다.
 모르는 내용은 추측하지 말고 불확실하다고 말한다.
 사용자가 파일을 첨부한 경우 첨부 내용을 우선 참고한다.
-사용자가 이미지(여권, 비자, 신분증, 계약서, 문서 캡처 등)를 첨부하면 OCR 텍스트에 의존하지 말고 이미지 자체를 직접 판독해서 답변한다.
+사용자가 이미지(여권, 비자, 신분증, 계약서, 문서 캡처 등)를 첨부하면 이미지 자체를 직접 판독해서 답변한다.
 
 이미지에서 특히 아래 정보가 있으면 정리한다.
 - 이름
@@ -1269,6 +1269,9 @@ def build_system_prompt(answer_length: str, agent_role: str = "") -> str:
 # ---------------------------------
 # 세션 초기화
 # ---------------------------------
+if "chat_paste_hint" not in st.session_state:
+    st.session_state.chat_paste_hint = ""
+    
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
@@ -1614,7 +1617,111 @@ if st.session_state.last_preview_html:
 # ---------------------------------
 # 사용자 입력 (채팅창 첨부 지원)
 # ---------------------------------
-st.caption("💡 아래 채팅창 하나만 사용합니다. Ctrl+V 텍스트/이미지 붙여넣기와 파일 첨부를 함께 사용할 수 있어요.")
+st.caption("💡 채팅창에 포커스를 두고 Ctrl+V로 캡처 이미지를 붙여넣으면 첨부되고, Enter로 바로 전송됩니다.")
+
+def mount_clipboard_image_bridge(chat_key: str):
+    st.html(
+        f"""
+        <script>
+        (() => {{
+          const ROOT_CLASS = "st-key-{chat_key}";
+          if (window.__clipboard_bridge_installed__ === ROOT_CLASS) return;
+          window.__clipboard_bridge_installed__ = ROOT_CLASS;
+
+          function findRoot() {{
+            return document.querySelector("." + ROOT_CLASS);
+          }}
+
+          function findTextarea(root) {{
+            if (!root) return null;
+            return root.querySelector("textarea");
+          }}
+
+          function findFileInput(root) {{
+            if (!root) return null;
+            return root.querySelector('input[type="file"]');
+          }}
+
+          function showBadge(root, text) {{
+            if (!root) return;
+            let badge = root.querySelector(".clipboard-paste-badge");
+            if (!badge) {{
+              badge = document.createElement("div");
+              badge.className = "clipboard-paste-badge";
+              badge.style.cssText = `
+                margin-top: 6px;
+                font-size: 12px;
+                color: #2563eb;
+                background: #eff6ff;
+                border: 1px solid #bfdbfe;
+                border-radius: 999px;
+                padding: 4px 10px;
+                display: inline-block;
+              `;
+              root.appendChild(badge);
+            }}
+            badge.textContent = text;
+            clearTimeout(badge._timer);
+            badge._timer = setTimeout(() => {{
+              if (badge) badge.remove();
+            }}, 2500);
+          }}
+
+          async function attachClipboardImage(blob) {{
+            const root = findRoot();
+            const fileInput = findFileInput(root);
+            const textarea = findTextarea(root);
+
+            if (!root || !fileInput) return;
+
+            const fileName = `clipboard_${{Date.now()}}.png`;
+            const file = new File([blob], fileName, {{
+              type: blob.type || "image/png",
+              lastModified: Date.now()
+            }});
+
+            const dt = new DataTransfer();
+
+            const existingFiles = Array.from(fileInput.files || []);
+            for (const f of existingFiles) {{
+              dt.items.add(f);
+            }}
+            dt.items.add(file);
+
+            fileInput.files = dt.files;
+            fileInput.dispatchEvent(new Event("change", {{ bubbles: true }}));
+            fileInput.dispatchEvent(new Event("input", {{ bubbles: true }}));
+
+            showBadge(root, "📎 클립보드 이미지 첨부됨 · Enter로 전송");
+            if (textarea) {{
+              textarea.focus();
+            }}
+          }}
+
+          document.addEventListener("paste", async (event) => {{
+            const root = findRoot();
+            const textarea = findTextarea(root);
+            if (!root || !textarea) return;
+
+            const active = document.activeElement;
+            const isChatFocused = active === textarea || root.contains(active);
+            if (!isChatFocused) return;
+
+            const items = Array.from(event.clipboardData?.items || []);
+            const imageItem = items.find(item => item.type && item.type.startsWith("image/"));
+            if (!imageItem) return;
+
+            const blob = imageItem.getAsFile();
+            if (!blob) return;
+
+            event.preventDefault();
+            await attachClipboardImage(blob);
+          }}, true);
+        }})();
+        </script>
+        """,
+        unsafe_allow_javascript=True,
+    )
 
 if st.session_state.is_generating:
     if st.button("⏹ 응답 멈춤", use_container_width=True):
@@ -1631,21 +1738,11 @@ user_input = ""
 chat_input_files = []
 legacy_chat_uploader_files = []
 
-paste_capture_files = st.file_uploader(
-    "여권/문서 이미지 붙여넣기 (상단 유지)",
-    type=["png", "jpg", "jpeg", "webp"],
-    accept_multiple_files=True,
-    key="chat_paste_capture",
-    help="브라우저에서 채팅창 Ctrl+V가 안 먹히면 여기에 붙여넣어 주세요.",
-)
-if st.button("붙여넣기 초기화", key="reset_paste_capture"):
-    st.session_state.last_paste_signature = ""
-    st.rerun()
-
 try:
     chat_payload = st.chat_input(
-        "메시지를 입력하세요 (+ 버튼으로 파일 첨부)",
+        "메시지를 입력하세요 (+ 버튼으로 파일 첨부 / Ctrl+V 이미지 붙여넣기)",
         accept_file="multiple",
+        file_type=chat_input_file_types,
         key="main_chat_input_with_file",
     )
 except Exception:
@@ -1657,6 +1754,8 @@ except Exception:
         key="legacy_chat_uploader",
         label_visibility="collapsed",
     ) or []
+
+mount_clipboard_image_bridge("main_chat_input_with_file")
 
 if isinstance(chat_payload, str):
     user_input = chat_payload.strip()
@@ -1686,13 +1785,6 @@ def _files_signature(files):
         parts.append(f"{getattr(f, 'name', 'file')}:{digest}")
     return "|".join(parts)
 
-paste_signature = _files_signature(paste_capture_files or [])
-has_new_paste = bool(paste_capture_files) and (paste_signature != st.session_state.last_paste_signature)
-
-if has_new_paste:
-    chat_input_files.extend(list(paste_capture_files))
-    st.session_state.last_paste_signature = paste_signature
-
 # 중복 제거
 unique_files = []
 seen_signatures = set()
@@ -1704,7 +1796,7 @@ for f in chat_input_files:
 chat_input_files = unique_files
 
 submitted_text = (user_input or "").strip()
-has_chat_submission = bool(submitted_text) or bool(chat_input_files) or has_new_paste
+has_chat_submission = bool(submitted_text) or bool(chat_input_files)
 
 if has_chat_submission:
     if chat_input_files:
