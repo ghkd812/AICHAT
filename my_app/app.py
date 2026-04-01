@@ -534,18 +534,10 @@ def should_prioritize_code_preview(query: str, files) -> bool:
 
 def render_preview_panel(preview_html: str, preview_blocks: dict, key_prefix: str):
     st.subheader("🖥 HTML/CSS 미리보기")
-    play_key = f"{key_prefix}_preview_play"
-    if play_key not in st.session_state:
-        st.session_state[play_key] = False
 
     if preview_blocks.get("html"):
         st.markdown("**HTML**")
         st.code(preview_blocks["html"], language="html")
-
-        _, play_col = st.columns([0.86, 0.14])
-        with play_col:
-            if st.button("▶ Play", key=f"{play_key}_btn", use_container_width=True):
-                st.session_state[play_key] = not st.session_state[play_key]
 
     if preview_blocks.get("css"):
         st.markdown("**CSS**")
@@ -563,8 +555,7 @@ def render_preview_panel(preview_html: str, preview_blocks: dict, key_prefix: st
         key=f"{key_prefix}_download_html"
     )
 
-    if st.session_state.get(play_key):
-        components.html(preview_html, height=700, scrolling=True)
+    components.html(preview_html, height=700, scrolling=True)
 
 # ---------------------------------
 # 검색 유틸
