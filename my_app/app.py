@@ -4,7 +4,6 @@ import re
 import base64
 import hashlib
 import html
-import io
 from datetime import datetime
 import certifi
 
@@ -308,93 +307,6 @@ def image_to_base64(file):
     file.seek(0)
     return base64.b64encode(file.getvalue()).decode()
 
-def build_message_attachments(files):
-    attachments = []
-    for f in files or []:
-        file_name = getattr(f, "name", "첨부 파일")
-        ext = file_name.split(".")[-1].lower() if "." in file_name else ""
-
-        item = {
-            "name": file_name,
-            "mime_type": getattr(f, "type", "") or "",
-            "ext": ext
-        }
-
-        if ext in ["png", "jpg", "jpeg", "webp"]:
-            mime = item["mime_type"] or f"image/{'jpeg' if ext == 'jpg' else ext}"
-            item["kind"] = "image"
-            item["data_url"] = f"data:{mime};base64,{image_to_base64(f)}"
-        else:
-            item["kind"] = "file"
-
-        attachments.append(item)
-
-    return attachments
-
-def build_file_context_and_images(files, show_previews: bool = True):
-    file_context = ""
-    image_inputs = []
-
-    for f in files or []:
-        ext = f.name.split(".")[-1].lower()
-        if show_previews:
-            st.write("첨부됨:", f.name)
-
-        try:
-            if ext == "pdf":
-                text = read_pdf(f)
-                file_context += f"\n\n[PDF: {f.name}]\n{text}"
-
-            elif ext in ["xlsx", "xls"]:
-                excel_text, previews = read_excel(f)
-                file_context += f"\n\n[EXCEL: {f.name}]\n{excel_text}"
-                if show_previews:
-                    for sheet_name, df in previews:
-                        with st.expander(f"미리보기: {f.name} / {sheet_name}", expanded=False):
-                            st.dataframe(df, use_container_width=True)
-
-            elif ext == "csv":
-                csv_text, preview_df = read_csv(f)
-                file_context += f"\n\n[CSV: {f.name}]\n{csv_text}"
-                if show_previews and preview_df is not None:
-                    with st.expander(f"미리보기: {f.name}", expanded=False):
-                        st.dataframe(preview_df, use_container_width=True)
-
-            elif ext == "pptx":
-                text = read_ppt(f)
-                file_context += f"\n\n[PPTX: {f.name}]\n{text}"
-
-            elif ext == "docx":
-                text = read_docx(f)
-                file_context += f"\n\n[DOCX: {f.name}]\n{text}"
-
-            elif ext == "txt":
-                text = read_txt(f)
-                file_context += f"\n\n[TXT: {f.name}]\n{text}"
-
-            elif ext in ["png", "jpg", "jpeg", "webp"]:
-                if show_previews:
-                    with st.expander(f"이미지 미리보기: {f.name}", expanded=False):
-                        st.image(f, caption=f"{f.name} 원본", use_container_width=True)
-
-                file_context += f"""
-[이미지 파일: {f.name}]
-이 이미지는 사용자가 첨부한 원본 이미지입니다.
-OCR 전처리 텍스트는 제공하지 않으니, 필요한 경우 이미지 자체를 직접 분석하세요.
-여권, 비자, 신분증, 문서 이미지, 캡처 화면일 수 있으므로
-이름, 여권번호, 국적, 생년월일, 발급일, 만료일, 비자 종류, 체류기간 등의 정보가 보이면 정리하세요.
-"""
-
-                image_inputs.append({
-                    "type": "input_image",
-                    "image_url": f"data:{f.type};base64,{image_to_base64(f)}"
-                })
-
-        except Exception as e:
-            st.error(f"{f.name} 처리 중 오류: {e}")
-
-    return file_context, image_inputs
-
 # ---------------------------------
 # 엑셀 변환 / 구조화 데이터 추출
 # ---------------------------------
@@ -600,32 +512,6 @@ def should_show_preview(user_input: str, response_text: str) -> bool:
     has_html_block = "```html" in response_text.lower()
 
     return has_keyword or has_html_block
-
-def render_preview_panel(preview_html: str, preview_blocks: dict, key_prefix: str):
-    st.subheader("🖥 HTML/CSS 미리보기")
-    play_key = f"{key_prefix}_preview_play"
-    if play_key not in st.session_state:
-        st.session_state[play_key] = False
-
-    if preview_blocks.get("html"):
-        st.markdown("**HTML**")
-        st.code(preview_blocks["html"], language="html")
-
-        _, play_col = st.columns([0.86, 0.14])
-        with play_col:
-            if st.button("▶ Play", key=f"{play_key}_btn", use_container_width=True):
-                st.session_state[play_key] = not st.session_state[play_key]
-
-    if preview_blocks.get("css"):
-        st.markdown("**CSS**")
-        st.code(preview_blocks["css"], language="css")
-
-    if preview_blocks.get("js"):
-        st.markdown("**JavaScript**")
-        st.code(preview_blocks["js"], language="javascript")
-
-    if st.session_state.get(play_key):
-        components.html(preview_html, height=700, scrolling=True)
 
 # ---------------------------------
 # 검색 유틸
@@ -1246,20 +1132,17 @@ def load_chat(chat_id: str):
 
     return get_default_chat_data()
 
-def append_message(chat_id: str, role: str, content: str, attachments=None):
+def append_message(chat_id: str, role: str, content: str):
     username = st.session_state.get("username", "guest")
-    message_payload = {
-        "role": role,
-        "content": content
-    }
-    if attachments:
-        message_payload["attachments"] = attachments
 
     get_chats_col().update_one(
         {"username": username, "chat_id": chat_id},
         {
             "$push": {
-                "messages": message_payload
+                "messages": {
+                    "role": role,
+                    "content": content
+                }
             },
             "$set": {
                 "updated_at": datetime.utcnow()
@@ -1627,11 +1510,66 @@ st.caption("📎 파일/스크린샷 첨부는 아래 대화 입력창(+)에서 
 
 active_files = st.session_state.uploaded_files_cache
 
-file_context, image_inputs = "", []
+file_context = ""
+image_inputs = []
 
 if active_files:
     st.success(f"{len(active_files)}개 파일 업로드됨")
-    file_context, image_inputs = build_file_context_and_images(active_files, show_previews=True)
+
+    for f in active_files:
+        ext = f.name.split(".")[-1].lower()
+        st.write("첨부됨:", f.name)
+
+        try:
+            if ext == "pdf":
+                text = read_pdf(f)
+                file_context += f"\n\n[PDF: {f.name}]\n{text}"
+
+            elif ext in ["xlsx", "xls"]:
+                excel_text, previews = read_excel(f)
+                file_context += f"\n\n[EXCEL: {f.name}]\n{excel_text}"
+                for sheet_name, df in previews:
+                    with st.expander(f"미리보기: {f.name} / {sheet_name}", expanded=False):
+                        st.dataframe(df, use_container_width=True)
+
+            elif ext == "csv":
+                csv_text, preview_df = read_csv(f)
+                file_context += f"\n\n[CSV: {f.name}]\n{csv_text}"
+                if preview_df is not None:
+                    with st.expander(f"미리보기: {f.name}", expanded=False):
+                        st.dataframe(preview_df, use_container_width=True)
+
+            elif ext == "pptx":
+                text = read_ppt(f)
+                file_context += f"\n\n[PPTX: {f.name}]\n{text}"
+
+            elif ext == "docx":
+                text = read_docx(f)
+                file_context += f"\n\n[DOCX: {f.name}]\n{text}"
+
+            elif ext == "txt":
+                text = read_txt(f)
+                file_context += f"\n\n[TXT: {f.name}]\n{text}"
+
+            elif ext in ["png", "jpg", "jpeg", "webp"]:
+                with st.expander(f"이미지 미리보기: {f.name}", expanded=False):
+                    st.image(f, caption=f"{f.name} 원본", use_container_width=True)
+
+                file_context += f"""
+[이미지 파일: {f.name}]
+이 이미지는 사용자가 첨부한 원본 이미지입니다.
+OCR 전처리 텍스트는 제공하지 않으니, 필요한 경우 이미지 자체를 직접 분석하세요.
+여권, 비자, 신분증, 문서 이미지, 캡처 화면일 수 있으므로
+이름, 여권번호, 국적, 생년월일, 발급일, 만료일, 비자 종류, 체류기간 등의 정보가 보이면 정리하세요.
+"""
+
+                image_inputs.append({
+                    "type": "input_image",
+                    "image_url": f"data:{f.type};base64,{image_to_base64(f)}"
+                })
+
+        except Exception as e:
+            st.error(f"{f.name} 처리 중 오류: {e}")
 
     if st.button("첨부 파일 비우기"):
         st.session_state.uploaded_files_cache = []
@@ -1650,13 +1588,6 @@ with st.expander("첨부 데이터 확인", expanded=False):
 for msg in messages:
     with st.chat_message(msg["role"], avatar=get_chat_avatar(msg["role"])):
         st.write(msg["content"])
-        attachments = msg.get("attachments", []) if isinstance(msg, dict) else []
-        if attachments:
-            for item in attachments:
-                if item.get("kind") == "image" and item.get("data_url"):
-                    st.image(item["data_url"], caption=item.get("name", "첨부 이미지"), width=220)
-                else:
-                    st.caption(f"첨부 파일: {item.get('name', '첨부 파일')}")
 
 # ---------------------------------
 # 마지막 HTML 미리보기 재표시
@@ -1665,11 +1596,23 @@ if st.session_state.last_generated_images:
     render_generated_images(st.session_state.last_generated_images)
 
 if st.session_state.last_preview_html:
-    render_preview_panel(
-        st.session_state.last_preview_html,
-        st.session_state.last_preview_blocks,
-        key_prefix=f"chat_{st.session_state.current_chat_id}_last"
-    )
+    st.subheader("🖥 HTML/CSS 미리보기")
+    components.html(st.session_state.last_preview_html, height=700, scrolling=True)
+
+    with st.expander("미리보기 코드 보기", expanded=False):
+        blocks = st.session_state.last_preview_blocks
+
+        if blocks.get("html"):
+            st.markdown("**HTML**")
+            st.code(blocks["html"], language="html")
+
+        if blocks.get("css"):
+            st.markdown("**CSS**")
+            st.code(blocks["css"], language="css")
+
+        if blocks.get("js"):
+            st.markdown("**JavaScript**")
+            st.code(blocks["js"], language="javascript")
 
 # ---------------------------------
 # 사용자 입력 (채팅창 첨부 지원)
@@ -1856,8 +1799,6 @@ submitted_text = (user_input or "").strip()
 has_chat_submission = bool(submitted_text) or bool(chat_input_files)
 
 if has_chat_submission:
-    submitted_attachments = build_message_attachments(chat_input_files)
-
     if chat_input_files:
         st.session_state.uploaded_files_cache = chat_input_files
         if not submitted_text:
@@ -1865,11 +1806,6 @@ if has_chat_submission:
 
     if not submitted_text:
         submitted_text = "첨부한 파일(이미지/문서)을 분석해줘."
-
-    # 이번 턴에서 새로 첨부한 파일이 있으면 즉시 그 파일 기준으로 컨텍스트를 재구성한다.
-    # (기존에는 상단에서 캐시 파일 기준으로만 구성되어, 첫 첨부 턴에 누락되는 문제가 있었다.)
-    effective_files = chat_input_files if chat_input_files else st.session_state.uploaded_files_cache
-    file_context, image_inputs = build_file_context_and_images(effective_files, show_previews=False)
 
     chat_id = st.session_state.current_chat_id
 
@@ -1880,16 +1816,22 @@ if has_chat_submission:
         current_data["title"] = new_title
         update_chat_title(chat_id, new_title)
 
-    append_message(chat_id, "user", submitted_text, attachments=submitted_attachments)
+    append_message(chat_id, "user", submitted_text)
 
     with st.chat_message("user", avatar=get_chat_avatar("user")):
         st.write(submitted_text)
-        if submitted_attachments:
-            for item in submitted_attachments:
-                if item.get("kind") == "image" and item.get("data_url"):
-                    st.image(item["data_url"], caption=item.get("name", "첨부 이미지"), width=220)
+        if chat_input_files:
+            for f in chat_input_files:
+                file_name = getattr(f, "name", "첨부 파일")
+                ext = file_name.split(".")[-1].lower() if "." in file_name else ""
+                if ext in ["png", "jpg", "jpeg", "webp"]:
+                    try:
+                        f.seek(0)
+                    except Exception:
+                        pass
+                    st.image(f, caption=file_name, width=220)
                 else:
-                    st.caption(f"첨부 파일: {item.get('name', '첨부 파일')}")
+                    st.caption(f"첨부 파일: {file_name}")
 
     with st.chat_message("assistant", avatar=get_chat_avatar("assistant")):
         placeholder = st.empty()
@@ -2098,11 +2040,22 @@ if has_chat_submission:
             if preview_html:
                 st.session_state.last_preview_html = preview_html
                 st.session_state.last_preview_blocks = preview_blocks
-                render_preview_panel(
-                    preview_html,
-                    preview_blocks,
-                    key_prefix=f"chat_{chat_id}_live"
-                )
+
+                st.subheader("🖥 HTML/CSS 미리보기")
+                components.html(preview_html, height=700, scrolling=True)
+
+                with st.expander("미리보기 코드 보기", expanded=False):
+                    if preview_blocks.get("html"):
+                        st.markdown("**HTML**")
+                        st.code(preview_blocks["html"], language="html")
+
+                    if preview_blocks.get("css"):
+                        st.markdown("**CSS**")
+                        st.code(preview_blocks["css"], language="css")
+
+                    if preview_blocks.get("js"):
+                        st.markdown("**JavaScript**")
+                        st.code(preview_blocks["js"], language="javascript")
             else:
                 if "```css" in full_text.lower() and "```html" not in full_text.lower():
                     st.info("CSS 코드만 있어서 미리보기는 생략했습니다. HTML 코드까지 같이 있으면 바로 렌더됩니다.")
