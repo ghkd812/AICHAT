@@ -601,6 +601,50 @@ def should_show_preview(user_input: str, response_text: str) -> bool:
 
     return has_keyword or has_html_block
 
+def should_prioritize_code_preview(query: str, files) -> bool:
+    q = str(query).lower()
+    code_keywords = [
+        "html", "css", "js", "javascript",
+        "시안", "퍼블리싱", "마크업", "웹페이지", "랜딩페이지",
+        "코드", "화면", "ui", "ux"
+    ]
+    has_code_intent = any(k in q for k in code_keywords)
+
+    has_image_attachment = False
+    for f in files or []:
+        name = str(getattr(f, "name", "")).lower()
+        mime = str(getattr(f, "type", "")).lower()
+        if name.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")) or mime.startswith("image/"):
+            has_image_attachment = True
+            break
+
+    return has_code_intent and has_image_attachment
+
+def render_preview_panel(preview_html: str, preview_blocks: dict, key_prefix: str):
+    st.subheader("🖥 HTML/CSS 미리보기")
+
+    if preview_blocks.get("html"):
+        st.markdown("**HTML**")
+        st.code(preview_blocks["html"], language="html")
+
+    if preview_blocks.get("css"):
+        st.markdown("**CSS**")
+        st.code(preview_blocks["css"], language="css")
+
+    if preview_blocks.get("js"):
+        st.markdown("**JavaScript**")
+        st.code(preview_blocks["js"], language="javascript")
+
+    st.download_button(
+        label="📥 코드 다운로드 (.html)",
+        data=preview_html,
+        file_name="preview.html",
+        mime="text/html",
+        key=f"{key_prefix}_download_html"
+    )
+
+    components.html(preview_html, height=700, scrolling=True)
+
 # ---------------------------------
 # 검색 유틸
 # ---------------------------------
@@ -1639,23 +1683,11 @@ if st.session_state.last_generated_images:
     render_generated_images(st.session_state.last_generated_images)
 
 if st.session_state.last_preview_html:
-    st.subheader("🖥 HTML/CSS 미리보기")
-    components.html(st.session_state.last_preview_html, height=700, scrolling=True)
-
-    with st.expander("미리보기 코드 보기", expanded=False):
-        blocks = st.session_state.last_preview_blocks
-
-        if blocks.get("html"):
-            st.markdown("**HTML**")
-            st.code(blocks["html"], language="html")
-
-        if blocks.get("css"):
-            st.markdown("**CSS**")
-            st.code(blocks["css"], language="css")
-
-        if blocks.get("js"):
-            st.markdown("**JavaScript**")
-            st.code(blocks["js"], language="javascript")
+    render_preview_panel(
+        st.session_state.last_preview_html,
+        st.session_state.last_preview_blocks,
+        key_prefix=f"chat_{st.session_state.current_chat_id}_last"
+    )
 
 # ---------------------------------
 # 사용자 입력 (채팅창 첨부 지원)
@@ -1897,7 +1929,7 @@ if has_chat_submission:
                     "content": msg["content"]
                 })
 
-            if is_image_generation_request(submitted_text):
+            if is_image_generation_request(submitted_text) and not should_prioritize_code_preview(submitted_text, effective_files):
                 image_prompt = get_image_generation_prompt(submitted_text)
                 image_spec = build_image_generation_spec(submitted_text, image_prompt)
                 placeholder.info("🎨 이미지 생성 중입니다... 잠시만 기다려주세요.")
@@ -2084,22 +2116,11 @@ if has_chat_submission:
             if preview_html:
                 st.session_state.last_preview_html = preview_html
                 st.session_state.last_preview_blocks = preview_blocks
-
-                st.subheader("🖥 HTML/CSS 미리보기")
-                components.html(preview_html, height=700, scrolling=True)
-
-                with st.expander("미리보기 코드 보기", expanded=False):
-                    if preview_blocks.get("html"):
-                        st.markdown("**HTML**")
-                        st.code(preview_blocks["html"], language="html")
-
-                    if preview_blocks.get("css"):
-                        st.markdown("**CSS**")
-                        st.code(preview_blocks["css"], language="css")
-
-                    if preview_blocks.get("js"):
-                        st.markdown("**JavaScript**")
-                        st.code(preview_blocks["js"], language="javascript")
+                render_preview_panel(
+                    preview_html,
+                    preview_blocks,
+                    key_prefix=f"chat_{chat_id}_live"
+                )
             else:
                 if "```css" in full_text.lower() and "```html" not in full_text.lower():
                     st.info("CSS 코드만 있어서 미리보기는 생략했습니다. HTML 코드까지 같이 있으면 바로 렌더됩니다.")
