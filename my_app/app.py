@@ -636,7 +636,7 @@ def should_prioritize_code_preview(query: str, files) -> bool:
     return has_code_intent and has_image_attachment
 
 def render_preview_panel(preview_html: str, preview_blocks: dict, key_prefix: str):
-    st.subheader("⌗ HTML/CSS 미리보기")
+    st.subheader("🖥 HTML/CSS 미리보기")
 
     if preview_blocks.get("html"):
         st.markdown("**HTML**")
@@ -1068,7 +1068,7 @@ def render_generated_images(generated_images):
     if not generated_images:
         return
 
-    st.subheader("◈ 생성된 이미지")
+    st.subheader("🎨 생성된 이미지")
     column_count = max(1, min(3, len(generated_images)))
     cols = st.columns(column_count)
     for idx, item in enumerate(generated_images):
@@ -1474,7 +1474,7 @@ if "last_paste_signature" not in st.session_state:
 # 로그인 화면
 # ---------------------------------
 if not st.session_state.logged_in:
-    st.subheader("로그인")
+    st.subheader("🔐 로그인")
 
     login_username = st.text_input("아이디")
     login_password = st.text_input("비밀번호", type="password")
@@ -1553,7 +1553,7 @@ with st.sidebar:
                 st.rerun()
 
         with col2:
-            if st.button("✕", key=f"del_{chat['id']}", use_container_width=True):
+            if st.button("🗑", key=f"del_{chat['id']}", use_container_width=True):
                 deleting_current = (st.session_state.current_chat_id == chat["id"])
                 delete_chat(chat["id"])
                 remaining = list_chats()
@@ -1648,12 +1648,12 @@ messages = current_data["messages"]
 current_agent_role = current_data.get("agent_role", "").strip()
 
 if current_agent_role:
-    st.info(f"· 현재 대화 Agent 역할: {current_agent_role}")
+    st.info(f"🧠 현재 대화 Agent 역할: {current_agent_role}")
 
 # ---------------------------------
 # 파일 첨부 안내 (채팅창 첨부 사용)
 # ---------------------------------
-st.caption("파일/스크린샷 첨부는 아래 대화 입력창(+)에서 해주세요.")
+st.caption("📎 파일/스크린샷 첨부는 아래 대화 입력창(+)에서 해주세요.")
 
 active_files = st.session_state.uploaded_files_cache
 
@@ -2154,7 +2154,7 @@ if has_chat_submission:
         st.session_state.last_result_df = result_df
 
         if result_df is not None and not result_df.empty:
-            st.subheader("⊟ AI 결과 표")
+            st.subheader("📊 AI 결과 표")
             st.dataframe(result_df, use_container_width=True)
 
             result_excel = dataframe_to_excel_bytes(result_df, sheet_name="ai_result")
