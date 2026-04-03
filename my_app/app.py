@@ -29,96 +29,199 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600&display=swap');
+
+/* 전체 배경 */
+.stApp {
+    background-color: #f5f0e8;
+    font-family: 'Inter', sans-serif;
+}
+
+/* 메인 컨테이너 */
 .block-container {
     padding-top: 1.5rem;
+    max-width: 860px !important;
 }
+
+/* 사이드바 */
 section[data-testid="stSidebar"] {
-    width: 320px !important;
+    width: 300px !important;
+    background-color: #ede8df !important;
+    border-right: 1px solid #d9d3c7;
 }
-.chat-title {
-    font-size: clamp(1.35rem, 2.2vw, 1.9rem);
-    font-weight: 800;
-    margin-bottom: 1rem;
-    line-height: 3.0;
-    white-space: normal !important;
-    word-break: keep-all;
-    overflow-wrap: anywhere;
+section[data-testid="stSidebar"] .stButton button {
+    background: transparent;
+    border: none;
+    color: #3d3529;
+    text-align: left;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    padding: 0.45rem 0.75rem;
     width: 100%;
 }
-.preview-wrap {
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 10px;
-    background: #fafafa;
-    margin-top: 8px;
+section[data-testid="stSidebar"] .stButton button:hover {
+    background-color: #d9d3c7;
 }
+
+/* 채팅 제목 */
+.chat-title {
+    font-family: 'Crimson Pro', Georgia, serif;
+    font-size: clamp(1.6rem, 2.5vw, 2.2rem);
+    font-weight: 600;
+    color: #2c2416;
+    margin-bottom: 0.5rem;
+    line-height: 2.0;
+    letter-spacing: -0.01em;
+}
+
+/* 채팅 메시지 - 사용자 */
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+    background-color: #e8ddd0 !important;
+    border-radius: 18px 18px 4px 18px !important;
+    border: 1px solid #d4c9b8;
+    margin-left: auto;
+    max-width: 85%;
+}
+
+/* 채팅 메시지 - AI */
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
+    background-color: #ffffff !important;
+    border-radius: 18px 18px 18px 4px !important;
+    border: 1px solid #e8e2d9;
+    box-shadow: 0 1px 4px rgba(44, 36, 22, 0.06);
+}
+
+/* 채팅 입력창 */
+.stChatInput textarea {
+    background-color: #ffffff !important;
+    border: 1.5px solid #c9c2b6 !important;
+    border-radius: 16px !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.95rem !important;
+    color: #2c2416 !important;
+    box-shadow: 0 2px 8px rgba(44, 36, 22, 0.06) !important;
+}
+.stChatInput textarea:focus {
+    border-color: #c17f3e !important;
+    box-shadow: 0 0 0 3px rgba(193, 127, 62, 0.12) !important;
+}
+
+/* 버튼 */
+.stButton button {
+    background-color: #c17f3e;
+    color: #ffffff;
+    border: none;
+    border-radius: 10px;
+    font-weight: 500;
+    font-size: 0.9rem;
+    padding: 0.4rem 1rem;
+    transition: background 0.18s;
+}
+.stButton button:hover {
+    background-color: #a86a2e;
+}
+
+/* 검색 결과 카드 */
 .result-card {
     padding: 14px 16px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid #ddd6cc;
     border-radius: 14px;
-    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    background: #ffffff;
     margin-bottom: 10px;
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    box-shadow: 0 2px 10px rgba(44, 36, 22, 0.05);
 }
 .result-title {
-    font-weight: 700;
+    font-weight: 600;
+    color: #2c2416;
     margin-bottom: 6px;
+    font-size: 0.97rem;
 }
 .result-meta {
-    color: #555;
-    font-size: 0.95rem;
+    color: #6b5e4e;
+    font-size: 0.93rem;
     line-height: 1.55;
 }
 .result-meta a {
-    color: #2563eb;
+    color: #c17f3e;
     text-decoration: none;
 }
 .result-meta a:hover {
     text-decoration: underline;
 }
+
+/* 검색 요약 */
 .search-summary {
     padding: 12px 14px;
     border-radius: 14px;
-    border: 1px solid #dbeafe;
-    background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+    border: 1px solid #ddd6cc;
+    background: #faf7f3;
     margin-bottom: 12px;
 }
 .search-badge {
     display: inline-block;
     padding: 0.2rem 0.55rem;
     border-radius: 999px;
-    background: #dbeafe;
-    color: #1d4ed8;
+    background: #f0e8da;
+    color: #7a5c35;
     font-size: 0.8rem;
-    font-weight: 700;
+    font-weight: 600;
     margin-right: 0.35rem;
     margin-bottom: 0.35rem;
 }
+
+/* 미리보기 */
+.preview-wrap {
+    border: 1px solid #ddd6cc;
+    border-radius: 12px;
+    padding: 10px;
+    background: #faf7f3;
+    margin-top: 8px;
+}
+
+/* 이미지 카드 */
 .image-card {
-    border: 1px solid #e5e7eb;
+    border: 1px solid #ddd6cc;
     border-radius: 18px;
     overflow: hidden;
     background: #ffffff;
-    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+    box-shadow: 0 4px 16px rgba(44, 36, 22, 0.07);
     margin-bottom: 14px;
 }
 .image-card-meta {
     padding: 12px 14px 14px 14px;
 }
 .image-card-title {
-    font-weight: 700;
+    font-weight: 600;
+    color: #2c2416;
     margin-bottom: 4px;
     line-height: 1.4;
 }
 .image-card-sub {
-    color: #64748b;
+    color: #8a7560;
     font-size: 0.88rem;
     margin-bottom: 8px;
+}
+
+/* 텍스트 색상 전반 */
+h1, h2, h3, h4 {
+    color: #2c2416 !important;
+    font-family: 'Crimson Pro', Georgia, serif !important;
+}
+p, li, span {
+    color: #3d3529;
+}
+
+/* 선택창, 슬라이더 등 */
+.stSelectbox select, .stTextInput input {
+    background-color: #ffffff !important;
+    border: 1.5px solid #c9c2b6 !important;
+    border-radius: 10px !important;
+    color: #2c2416 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="chat-title">🤖 CUSTOM 챗봇</div>', unsafe_allow_html=True)
+st.markdown('<div class="chat-title">CUSTOM 챗봇</div>', unsafe_allow_html=True)
 
 # ---------------------------------
 # MongoDB
@@ -533,7 +636,7 @@ def should_prioritize_code_preview(query: str, files) -> bool:
     return has_code_intent and has_image_attachment
 
 def render_preview_panel(preview_html: str, preview_blocks: dict, key_prefix: str):
-    st.subheader("🖥 HTML/CSS 미리보기")
+    st.subheader("⌗ HTML/CSS 미리보기")
 
     if preview_blocks.get("html"):
         st.markdown("**HTML**")
@@ -965,7 +1068,7 @@ def render_generated_images(generated_images):
     if not generated_images:
         return
 
-    st.subheader("🎨 생성된 이미지")
+    st.subheader("◈ 생성된 이미지")
     column_count = max(1, min(3, len(generated_images)))
     cols = st.columns(column_count)
     for idx, item in enumerate(generated_images):
@@ -1371,7 +1474,7 @@ if "last_paste_signature" not in st.session_state:
 # 로그인 화면
 # ---------------------------------
 if not st.session_state.logged_in:
-    st.subheader("🔐 로그인")
+    st.subheader("로그인")
 
     login_username = st.text_input("아이디")
     login_password = st.text_input("비밀번호", type="password")
@@ -1450,7 +1553,7 @@ with st.sidebar:
                 st.rerun()
 
         with col2:
-            if st.button("🗑", key=f"del_{chat['id']}", use_container_width=True):
+            if st.button("✕", key=f"del_{chat['id']}", use_container_width=True):
                 deleting_current = (st.session_state.current_chat_id == chat["id"])
                 delete_chat(chat["id"])
                 remaining = list_chats()
@@ -1545,12 +1648,12 @@ messages = current_data["messages"]
 current_agent_role = current_data.get("agent_role", "").strip()
 
 if current_agent_role:
-    st.info(f"🧠 현재 대화 Agent 역할: {current_agent_role}")
+    st.info(f"· 현재 대화 Agent 역할: {current_agent_role}")
 
 # ---------------------------------
 # 파일 첨부 안내 (채팅창 첨부 사용)
 # ---------------------------------
-st.caption("📎 파일/스크린샷 첨부는 아래 대화 입력창(+)에서 해주세요.")
+st.caption("파일/스크린샷 첨부는 아래 대화 입력창(+)에서 해주세요.")
 
 active_files = st.session_state.uploaded_files_cache
 
@@ -2051,7 +2154,7 @@ if has_chat_submission:
         st.session_state.last_result_df = result_df
 
         if result_df is not None and not result_df.empty:
-            st.subheader("📊 AI 결과 표")
+            st.subheader("⊟ AI 결과 표")
             st.dataframe(result_df, use_container_width=True)
 
             result_excel = dataframe_to_excel_bytes(result_df, sheet_name="ai_result")
