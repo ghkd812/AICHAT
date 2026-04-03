@@ -29,21 +29,16 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
 
-/* 전체 배경 */
 .stApp {
     background-color: #f5f0e8;
     font-family: 'Inter', sans-serif;
 }
-
-/* 메인 컨테이너 */
 .block-container {
     padding-top: 1.5rem;
     max-width: 860px !important;
 }
-
-/* 사이드바 */
 section[data-testid="stSidebar"] {
     width: 300px !important;
     background-color: #ede8df !important;
@@ -62,8 +57,6 @@ section[data-testid="stSidebar"] .stButton button {
 section[data-testid="stSidebar"] .stButton button:hover {
     background-color: #d9d3c7;
 }
-
-/* 채팅 제목 */
 .chat-title {
     font-family: 'Crimson Pro', Georgia, serif;
     font-size: clamp(1.6rem, 2.5vw, 2.2rem);
@@ -73,55 +66,34 @@ section[data-testid="stSidebar"] .stButton button:hover {
     line-height: 2.0;
     letter-spacing: -0.01em;
 }
-
-/* 채팅 메시지 - 사용자 */
 [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
     background-color: #e8ddd0 !important;
     border-radius: 18px 18px 4px 18px !important;
     border: 1px solid #d4c9b8;
-    margin-left: auto;
-    max-width: 85%;
 }
-
-/* 채팅 메시지 - AI */
 [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
     background-color: #ffffff !important;
     border-radius: 18px 18px 18px 4px !important;
     border: 1px solid #e8e2d9;
     box-shadow: 0 1px 4px rgba(44, 36, 22, 0.06);
 }
-
-/* 채팅 입력창 */
 .stChatInput textarea {
     background-color: #ffffff !important;
     border: 1.5px solid #c9c2b6 !important;
     border-radius: 16px !important;
-    font-family: 'Inter', sans-serif !important;
-    font-size: 0.95rem !important;
     color: #2c2416 !important;
-    box-shadow: 0 2px 8px rgba(44, 36, 22, 0.06) !important;
 }
 .stChatInput textarea:focus {
     border-color: #c17f3e !important;
     box-shadow: 0 0 0 3px rgba(193, 127, 62, 0.12) !important;
 }
-
-/* 버튼 */
-.stButton button {
-    background-color: #c17f3e;
-    color: #ffffff;
-    border: none;
-    border-radius: 10px;
-    font-weight: 500;
-    font-size: 0.9rem;
-    padding: 0.4rem 1rem;
-    transition: background 0.18s;
+.preview-wrap {
+    border: 1px solid #ddd6cc;
+    border-radius: 12px;
+    padding: 10px;
+    background: #faf7f3;
+    margin-top: 8px;
 }
-.stButton button:hover {
-    background-color: #a86a2e;
-}
-
-/* 검색 결과 카드 */
 .result-card {
     padding: 14px 16px;
     border: 1px solid #ddd6cc;
@@ -148,8 +120,6 @@ section[data-testid="stSidebar"] .stButton button:hover {
 .result-meta a:hover {
     text-decoration: underline;
 }
-
-/* 검색 요약 */
 .search-summary {
     padding: 12px 14px;
     border-radius: 14px;
@@ -168,17 +138,6 @@ section[data-testid="stSidebar"] .stButton button:hover {
     margin-right: 0.35rem;
     margin-bottom: 0.35rem;
 }
-
-/* 미리보기 */
-.preview-wrap {
-    border: 1px solid #ddd6cc;
-    border-radius: 12px;
-    padding: 10px;
-    background: #faf7f3;
-    margin-top: 8px;
-}
-
-/* 이미지 카드 */
 .image-card {
     border: 1px solid #ddd6cc;
     border-radius: 18px;
@@ -201,27 +160,16 @@ section[data-testid="stSidebar"] .stButton button:hover {
     font-size: 0.88rem;
     margin-bottom: 8px;
 }
-
-/* 텍스트 색상 전반 */
 h1, h2, h3, h4 {
     color: #2c2416 !important;
-    font-family: 'Crimson Pro', Georgia, serif !important;
 }
 p, li, span {
     color: #3d3529;
 }
-
-/* 선택창, 슬라이더 등 */
-.stSelectbox select, .stTextInput input {
-    background-color: #ffffff !important;
-    border: 1.5px solid #c9c2b6 !important;
-    border-radius: 10px !important;
-    color: #2c2416 !important;
-}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="chat-title">CUSTOM 챗봇</div>', unsafe_allow_html=True)
+st.markdown('<div class="chat-title">🤖 CUSTOM 챗봇</div>', unsafe_allow_html=True)
 
 # ---------------------------------
 # MongoDB
