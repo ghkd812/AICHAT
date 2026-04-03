@@ -29,92 +29,48 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
-
-.stApp {
-    background-color: #f5f0e8;
-    font-family: 'Inter', sans-serif;
-}
 .block-container {
     padding-top: 1.5rem;
-    max-width: 860px !important;
 }
 section[data-testid="stSidebar"] {
-    width: 300px !important;
-    background-color: #ede8df !important;
-    border-right: 1px solid #d9d3c7;
-}
-section[data-testid="stSidebar"] .stButton button {
-    background: transparent;
-    border: none;
-    color: #3d3529;
-    text-align: left;
-    border-radius: 8px;
-    font-size: 0.9rem;
-    padding: 0.45rem 0.75rem;
-    width: 100%;
-}
-section[data-testid="stSidebar"] .stButton button:hover {
-    background-color: #d9d3c7;
+    width: 320px !important;
 }
 .chat-title {
-    font-family: 'Crimson Pro', Georgia, serif;
-    font-size: clamp(1.6rem, 2.5vw, 2.2rem);
-    font-weight: 600;
-    color: #2c2416;
-    margin-bottom: 0.5rem;
-    line-height: 2.0;
-    letter-spacing: -0.01em;
-}
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
-    background-color: #e8ddd0 !important;
-    border-radius: 18px 18px 4px 18px !important;
-    border: 1px solid #d4c9b8;
-}
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
-    background-color: #ffffff !important;
-    border-radius: 18px 18px 18px 4px !important;
-    border: 1px solid #e8e2d9;
-    box-shadow: 0 1px 4px rgba(44, 36, 22, 0.06);
-}
-.stChatInput textarea {
-    background-color: #ffffff !important;
-    border: 1.5px solid #c9c2b6 !important;
-    border-radius: 16px !important;
-    color: #2c2416 !important;
-}
-.stChatInput textarea:focus {
-    border-color: #c17f3e !important;
-    box-shadow: 0 0 0 3px rgba(193, 127, 62, 0.12) !important;
+    font-size: clamp(1.35rem, 2.2vw, 1.9rem);
+    font-weight: 800;
+    margin-bottom: 1rem;
+    line-height: 3.0;
+    white-space: normal !important;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+    width: 100%;
 }
 .preview-wrap {
-    border: 1px solid #ddd6cc;
+    border: 1px solid #e5e7eb;
     border-radius: 12px;
     padding: 10px;
-    background: #faf7f3;
+    background: #fafafa;
     margin-top: 8px;
 }
 .result-card {
     padding: 14px 16px;
-    border: 1px solid #ddd6cc;
+    border: 1px solid #e5e7eb;
     border-radius: 14px;
-    background: #ffffff;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
     margin-bottom: 10px;
-    box-shadow: 0 2px 10px rgba(44, 36, 22, 0.05);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 .result-title {
-    font-weight: 600;
-    color: #2c2416;
+    font-weight: 700;
     margin-bottom: 6px;
-    font-size: 0.97rem;
 }
 .result-meta {
-    color: #6b5e4e;
-    font-size: 0.93rem;
+    color: #555;
+    font-size: 0.95rem;
     line-height: 1.55;
 }
 .result-meta a {
-    color: #c17f3e;
+    color: #2563eb;
     text-decoration: none;
 }
 .result-meta a:hover {
@@ -123,48 +79,41 @@ section[data-testid="stSidebar"] .stButton button:hover {
 .search-summary {
     padding: 12px 14px;
     border-radius: 14px;
-    border: 1px solid #ddd6cc;
-    background: #faf7f3;
+    border: 1px solid #dbeafe;
+    background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
     margin-bottom: 12px;
 }
 .search-badge {
     display: inline-block;
     padding: 0.2rem 0.55rem;
     border-radius: 999px;
-    background: #f0e8da;
-    color: #7a5c35;
+    background: #dbeafe;
+    color: #1d4ed8;
     font-size: 0.8rem;
-    font-weight: 600;
+    font-weight: 700;
     margin-right: 0.35rem;
     margin-bottom: 0.35rem;
 }
 .image-card {
-    border: 1px solid #ddd6cc;
+    border: 1px solid #e5e7eb;
     border-radius: 18px;
     overflow: hidden;
     background: #ffffff;
-    box-shadow: 0 4px 16px rgba(44, 36, 22, 0.07);
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
     margin-bottom: 14px;
 }
 .image-card-meta {
     padding: 12px 14px 14px 14px;
 }
 .image-card-title {
-    font-weight: 600;
-    color: #2c2416;
+    font-weight: 700;
     margin-bottom: 4px;
     line-height: 1.4;
 }
 .image-card-sub {
-    color: #8a7560;
+    color: #64748b;
     font-size: 0.88rem;
     margin-bottom: 8px;
-}
-h1, h2, h3, h4 {
-    color: #2c2416 !important;
-}
-p, li, span {
-    color: #3d3529;
 }
 </style>
 """, unsafe_allow_html=True)
