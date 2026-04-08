@@ -43,7 +43,7 @@ st.markdown("""
 
 /* ── 사이드바 ── */
 section[data-testid="stSidebar"] {
-    width: 300px !important;
+    width: 340px !important;
     background-color: #ede8df !important;
     border-right: 1px solid #d9d3c7;
 }
@@ -2420,6 +2420,93 @@ def mount_clipboard_image_bridge(chat_key: str):
         """,
         unsafe_allow_javascript=True,
     )
+
+def mount_toolbar_toggle():
+    st.html(
+        """
+        <script>
+        (() => {
+            if (window.__toolbar_toggle_installed__) return;
+            window.__toolbar_toggle_installed__ = true;
+
+            const STORAGE_KEY = 'hazel_toolbar_visible';
+
+            function isVisible() {
+                return localStorage.getItem(STORAGE_KEY) === 'true';
+            }
+
+            function applyState(visible) {
+                const toolbar = document.querySelector('[data-testid="stToolbar"]');
+                if (toolbar) {
+                    toolbar.style.opacity        = visible ? '1' : '0';
+                    toolbar.style.pointerEvents  = visible ? 'auto' : 'none';
+                    toolbar.style.transition     = 'opacity 0.25s ease';
+                }
+                localStorage.setItem(STORAGE_KEY, visible ? 'true' : 'false');
+                const btn = document.getElementById('__toolbar_toggle_btn__');
+                if (btn) btn.title = visible ? '툴바 숨기기' : '툴바 보이기';
+            }
+
+            function createBtn() {
+                if (document.getElementById('__toolbar_toggle_btn__')) return;
+                const btn = document.createElement('button');
+                btn.id = '__toolbar_toggle_btn__';
+                btn.innerHTML = '⋯';
+                Object.assign(btn.style, {
+                    position      : 'fixed',
+                    top           : '6px',
+                    right         : '6px',
+                    zIndex        : '99999',
+                    width         : '22px',
+                    height        : '22px',
+                    background    : 'rgba(245,240,232,0.55)',
+                    border        : '1px solid rgba(200,185,170,0.5)',
+                    borderRadius  : '6px',
+                    cursor        : 'pointer',
+                    fontSize      : '14px',
+                    lineHeight    : '1',
+                    color         : '#8a7560',
+                    display       : 'flex',
+                    alignItems    : 'center',
+                    justifyContent: 'center',
+                    padding       : '0',
+                    opacity       : '0.35',
+                    transition    : 'opacity 0.2s, background 0.2s',
+                    backdropFilter: 'blur(4px)',
+                });
+                btn.onmouseenter = () => { btn.style.opacity = '1'; btn.style.background = 'rgba(245,240,232,0.95)'; };
+                btn.onmouseleave = () => { btn.style.opacity = '0.35'; btn.style.background = 'rgba(245,240,232,0.55)'; };
+                btn.onclick = () => applyState(!isVisible());
+                document.body.appendChild(btn);
+            }
+
+            function init() {
+                const toolbar = document.querySelector('[data-testid="stToolbar"]');
+                if (toolbar) {
+                    createBtn();
+                    applyState(isVisible());
+                } else {
+                    setTimeout(init, 150);
+                }
+            }
+            init();
+
+            // Streamlit 리렌더 후에도 상태 재적용
+            const observer = new MutationObserver(() => {
+                const toolbar = document.querySelector('[data-testid="stToolbar"]');
+                if (toolbar && (toolbar.style.opacity === '' || toolbar.style.opacity === '1') && !isVisible()) {
+                    applyState(false);
+                }
+                createBtn();
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        })();
+        </script>
+        """,
+        unsafe_allow_javascript=True,
+    )
+
+mount_toolbar_toggle()
 
 if st.session_state.is_generating:
     if st.button("⏹ 응답 멈춤", use_container_width=True):
