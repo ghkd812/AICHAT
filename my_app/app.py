@@ -136,6 +136,17 @@ section[data-testid="stSidebar"] span {
     color: #3d3529 !important;
 }
 
+/* ── 모델/길이 옵션 바 셀렉트박스 ── */
+div[data-testid="stSelectbox"][data-testid] > div > div {
+    background-color: #f5f0e8 !important;
+    border: 1.5px solid #c9bfb0 !important;
+    border-radius: 10px !important;
+    color: #3d3529 !important;
+    font-size: 0.82rem !important;
+    min-height: 0 !important;
+    padding: 0.25rem 0.5rem !important;
+}
+
 /* ── 하단 채팅 바 컨테이너 ── */
 [data-testid="stBottom"] {
     background: linear-gradient(to top, #f5f0e8 75%, rgba(245,240,232,0)) !important;
@@ -2045,29 +2056,6 @@ with st.sidebar:
     st.caption("예시: '너는 PM이야', '너는 마케팅 카피라이터야', '너는 여행 플래너야'")
 
     st.divider()
-    st.header("답변 설정")
-
-    model_options = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1", "gpt-5.4"]
-    if st.session_state.model_name not in model_options:
-        st.session_state.model_name = "gpt-4.1-mini"
-
-    st.session_state.model_name = st.selectbox(
-        "모델",
-        model_options,
-        index=model_options.index(st.session_state.model_name)
-    )
-
-    length_options = ["짧게", "보통", "자세히"]
-    if st.session_state.answer_length not in length_options:
-        st.session_state.answer_length = "보통"
-
-    st.session_state.answer_length = st.selectbox(
-        "답변 길이",
-        length_options,
-        index=length_options.index(st.session_state.answer_length)
-    )
-
-    st.divider()
     st.header("검색 설정")
 
     st.session_state.use_web_search = st.toggle(
@@ -2377,6 +2365,32 @@ chat_input_file_types = [
 user_input = ""
 chat_input_files = []
 legacy_chat_uploader_files = []
+
+# ── 모델 / 답변 길이 옵션 바 (입력창 위) ──
+_model_options = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1", "gpt-5.4"]
+_length_options = ["짧게", "보통", "자세히"]
+if st.session_state.model_name not in _model_options:
+    st.session_state.model_name = "gpt-4.1-mini"
+if st.session_state.answer_length not in _length_options:
+    st.session_state.answer_length = "보통"
+
+_c1, _c2, _c3 = st.columns([3, 2, 7])
+with _c1:
+    st.session_state.model_name = st.selectbox(
+        "모델",
+        _model_options,
+        index=_model_options.index(st.session_state.model_name),
+        key="model_select_bottom",
+        label_visibility="collapsed",
+    )
+with _c2:
+    st.session_state.answer_length = st.selectbox(
+        "답변 길이",
+        _length_options,
+        index=_length_options.index(st.session_state.answer_length),
+        key="length_select_bottom",
+        label_visibility="collapsed",
+    )
 
 try:
     chat_payload = st.chat_input(
