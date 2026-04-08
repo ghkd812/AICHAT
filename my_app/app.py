@@ -1598,21 +1598,179 @@ if "last_paste_signature" not in st.session_state:
 # 로그인 화면
 # ---------------------------------
 if not st.session_state.logged_in:
-    st.subheader("🔐 로그인")
 
-    login_username = st.text_input("아이디")
-    login_password = st.text_input("비밀번호", type="password")
+    st.markdown("""
+    <style>
+    /* 로그인 전용 — 블록 컨테이너 풀스크린으로 */
+    .block-container {
+        max-width: 100% !important;
+        padding: 0 !important;
+    }
 
-    if st.button("로그인", use_container_width=True):
-        if verify_login(login_username, login_password):
-            st.session_state.logged_in = True
-            st.session_state.username = login_username
-            st.success("로그인되었습니다.")
-            st.rerun()
-        else:
-            st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
+    /* ── 배경 블롭 ── */
+    .login-blob {
+        position: fixed;
+        border-radius: 50%;
+        pointer-events: none;
+        z-index: 0;
+        filter: blur(60px);
+    }
 
-    st.info("Streamlit Secrets에 USERS 계정을 등록해두면 됩니다.")
+    /* ── 카드 래퍼 ── */
+    .login-card {
+        background: rgba(255,255,255,0.82);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(212,201,184,0.7);
+        border-radius: 28px;
+        padding: 48px 44px 40px;
+        box-shadow:
+            0 4px 24px rgba(44,36,22,0.08),
+            0 1px 4px rgba(44,36,22,0.06);
+        margin-bottom: 1.5rem;
+    }
+
+    .login-logo {
+        font-size: 3.2rem;
+        line-height: 1;
+        margin-bottom: 0.6rem;
+        display: block;
+        text-align: center;
+    }
+    .login-title {
+        font-family: 'Crimson Pro', Georgia, serif;
+        font-size: 2rem;
+        font-weight: 600;
+        color: #2c2416;
+        text-align: center;
+        margin-bottom: 0.3rem;
+        letter-spacing: -0.01em;
+    }
+    .login-subtitle {
+        font-size: 0.88rem;
+        color: #8a7560;
+        text-align: center;
+        margin-bottom: 2.2rem;
+    }
+    .login-label {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #6b5e4e;
+        margin-bottom: 0.3rem;
+        display: block;
+    }
+
+    /* 입력 필드 */
+    .stTextInput > div > div > input {
+        border-radius: 14px !important;
+        border: 1.5px solid #d4c9b8 !important;
+        background: #faf7f3 !important;
+        color: #2c2416 !important;
+        padding: 0.65rem 1rem !important;
+        font-size: 0.95rem !important;
+    }
+    .stTextInput > div > div > input:focus {
+        border-color: #c17f3e !important;
+        box-shadow: 0 0 0 3px rgba(193,127,62,0.14) !important;
+        background: #ffffff !important;
+    }
+
+    /* 로그인 버튼 */
+    .stButton > button {
+        background: linear-gradient(135deg, #c17f3e 0%, #a66a2c 100%) !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 14px !important;
+        font-size: 0.97rem !important;
+        font-weight: 600 !important;
+        padding: 0.7rem 1rem !important;
+        letter-spacing: 0.02em !important;
+        box-shadow: 0 4px 14px rgba(193,127,62,0.35) !important;
+        transition: all 0.2s ease !important;
+        margin-top: 0.6rem !important;
+    }
+    .stButton > button:hover {
+        transform: translateY(-1px) !important;
+        box-shadow: 0 6px 20px rgba(193,127,62,0.45) !important;
+    }
+    .stButton > button:active {
+        transform: translateY(0px) !important;
+    }
+
+    /* divider 점 장식 */
+    .login-dots {
+        display: flex;
+        justify-content: center;
+        gap: 6px;
+        margin-top: 1.8rem;
+    }
+    .login-dot {
+        width: 6px; height: 6px;
+        border-radius: 50%;
+        background: #d4c9b8;
+    }
+    .login-dot.active { background: #c17f3e; }
+    </style>
+
+    <!-- 배경 블롭 3개 -->
+    <div class="login-blob" style="
+        width:520px; height:520px;
+        top:-140px; right:-140px;
+        background: radial-gradient(circle, rgba(193,127,62,0.22) 0%, transparent 70%);
+    "></div>
+    <div class="login-blob" style="
+        width:420px; height:420px;
+        bottom:-120px; left:-120px;
+        background: radial-gradient(circle, rgba(44,36,22,0.13) 0%, transparent 70%);
+    "></div>
+    <div class="login-blob" style="
+        width:300px; height:300px;
+        top:55%; left:55%;
+        background: radial-gradient(circle, rgba(193,127,62,0.10) 0%, transparent 70%);
+    "></div>
+    """, unsafe_allow_html=True)
+
+    # 상단 여백
+    st.markdown("<div style='height:60px'></div>", unsafe_allow_html=True)
+
+    # 좌우 여백으로 중앙 카드
+    left, center, right = st.columns([1, 1.1, 1])
+
+    with center:
+        st.markdown("""
+        <div class="login-card">
+            <span class="login-logo">🤖</span>
+            <div class="login-title">CUSTOM 챗봇</div>
+            <div class="login-subtitle">계속하려면 로그인하세요</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        login_username = st.text_input(
+            "아이디",
+            placeholder="아이디를 입력하세요",
+        )
+        login_password = st.text_input(
+            "비밀번호",
+            type="password",
+            placeholder="비밀번호를 입력하세요",
+        )
+
+        if st.button("로그인", use_container_width=True):
+            if verify_login(login_username, login_password):
+                st.session_state.logged_in = True
+                st.session_state.username = login_username
+                st.rerun()
+            else:
+                st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
+
+        st.markdown("""
+        <div class="login-dots">
+            <div class="login-dot active"></div>
+            <div class="login-dot"></div>
+            <div class="login-dot"></div>
+        </div>
+        """, unsafe_allow_html=True)
+
     st.stop()
 
 # ---------------------------------
