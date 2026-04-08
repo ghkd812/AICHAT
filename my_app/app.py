@@ -240,8 +240,70 @@ section[data-testid="stSidebar"] span {
 /* ── 공통 텍스트 ── */
 h1, h2, h3, h4 { color: #2c2416 !important; }
 p, li { color: #3d3529; }
+
+/* ── Streamlit 툴바 숨김/표시 토글 ── */
+body.hide-streamlit-toolbar [data-testid="stToolbar"],
+body.hide-streamlit-toolbar [data-testid="stStatusWidget"],
+body.hide-streamlit-toolbar [data-testid="stDecoration"],
+body.hide-streamlit-toolbar .stAppToolbar {
+    display: none !important;
+}
 </style>
 """, unsafe_allow_html=True)
+
+# 툴바 토글 버튼 (브라우저 localStorage에 상태 저장)
+components.html(
+    """
+    <script>
+      (function () {
+        const STORAGE_KEY = "streamlit_toolbar_hidden";
+        const doc = window.parent.document;
+        if (!doc) return;
+
+        const ensureButton = () => {
+          let btn = doc.getElementById("toolbar-toggle-btn");
+          if (!btn) {
+            btn = doc.createElement("button");
+            btn.id = "toolbar-toggle-btn";
+            btn.type = "button";
+            btn.style.position = "fixed";
+            btn.style.top = "10px";
+            btn.style.right = "10px";
+            btn.style.zIndex = "99999";
+            btn.style.border = "1px solid #d0c7bb";
+            btn.style.background = "#fffaf3";
+            btn.style.color = "#4a3c2d";
+            btn.style.borderRadius = "999px";
+            btn.style.padding = "6px 10px";
+            btn.style.fontSize = "12px";
+            btn.style.cursor = "pointer";
+            btn.style.boxShadow = "0 2px 8px rgba(0,0,0,0.12)";
+            doc.body.appendChild(btn);
+          }
+          return btn;
+        };
+
+        const applyState = (isHidden) => {
+          doc.body.classList.toggle("hide-streamlit-toolbar", isHidden);
+          const btn = ensureButton();
+          btn.textContent = isHidden ? "툴바 보이기" : "툴바 숨기기";
+        };
+
+        const initialHidden = localStorage.getItem(STORAGE_KEY) === "1";
+        applyState(initialHidden);
+
+        const btn = ensureButton();
+        btn.onclick = () => {
+          const nextHidden = !doc.body.classList.contains("hide-streamlit-toolbar");
+          localStorage.setItem(STORAGE_KEY, nextHidden ? "1" : "0");
+          applyState(nextHidden);
+        };
+      })();
+    </script>
+    """,
+    height=0,
+    width=0,
+)
 
 # ---------------------------------
 # MongoDB
