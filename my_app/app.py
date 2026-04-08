@@ -47,23 +47,34 @@ section[data-testid="stSidebar"] {
     background-color: #ede8df !important;
     border-right: 1px solid #d9d3c7;
 }
+
+/* 모든 사이드바 버튼: 흰 배경 + 테두리로 경계 명확하게 */
 section[data-testid="stSidebar"] .stButton > button {
-    background: transparent !important;
-    border: none !important;
+    background-color: #f5f0e8 !important;
+    border: 1.5px solid #c9bfb0 !important;
     color: #3d3529 !important;
     text-align: left;
-    border-radius: 8px;
+    border-radius: 10px !important;
     font-size: 0.88rem;
-    padding: 0.45rem 0.75rem;
+    font-weight: 500 !important;
+    padding: 0.5rem 0.75rem;
     width: 100%;
-    transition: background 0.15s;
+    transition: all 0.15s ease;
 }
-section[data-testid="stSidebar"] .stButton > button * {
+section[data-testid="stSidebar"] .stButton > button *,
+section[data-testid="stSidebar"] .stButton > button p {
     color: #3d3529 !important;
+    font-weight: 500 !important;
 }
 section[data-testid="stSidebar"] .stButton > button:hover {
-    background-color: #d9d3c7 !important;
+    background-color: #e8ddd0 !important;
+    border-color: #a08060 !important;
     color: #2c2416 !important;
+}
+
+/* 로그아웃 버튼: 살짝 강조 */
+section[data-testid="stSidebar"] .stButton > button[kind="secondary"]:first-of-type {
+    border-color: #b09070 !important;
 }
 section[data-testid="stSidebar"] h1,
 section[data-testid="stSidebar"] h2,
@@ -125,6 +136,16 @@ section[data-testid="stSidebar"] span {
     color: #3d3529 !important;
 }
 
+/* ── 하단 채팅 바 컨테이너 ── */
+[data-testid="stBottom"] {
+    background: linear-gradient(to top, #f5f0e8 75%, rgba(245,240,232,0)) !important;
+    padding-top: 16px !important;
+    border-top: none !important;
+}
+[data-testid="stBottom"] > div {
+    background: transparent !important;
+}
+
 /* ── 채팅 입력창 ── */
 .stChatInput textarea {
     background-color: #ffffff !important;
@@ -132,6 +153,7 @@ section[data-testid="stSidebar"] span {
     border-radius: 16px !important;
     color: #2c2416 !important;
     font-size: 0.95rem !important;
+    box-shadow: 0 2px 8px rgba(44,36,22,0.06) !important;
 }
 .stChatInput textarea:focus {
     border-color: #c17f3e !important;
