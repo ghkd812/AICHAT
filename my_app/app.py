@@ -38,7 +38,7 @@ st.markdown("""
 }
 .block-container {
     padding-top: 1.5rem;
-    max-width: 860px !important;
+    max-width: 1100px !important;
 }
 
 /* ── 사이드바 ── */
@@ -47,10 +47,10 @@ section[data-testid="stSidebar"] {
     background-color: #ede8df !important;
     border-right: 1px solid #d9d3c7;
 }
-section[data-testid="stSidebar"] .stButton button {
-    background: transparent;
-    border: none;
-    color: #3d3529;
+section[data-testid="stSidebar"] .stButton > button {
+    background: transparent !important;
+    border: none !important;
+    color: #3d3529 !important;
     text-align: left;
     border-radius: 8px;
     font-size: 0.88rem;
@@ -58,8 +58,12 @@ section[data-testid="stSidebar"] .stButton button {
     width: 100%;
     transition: background 0.15s;
 }
-section[data-testid="stSidebar"] .stButton button:hover {
-    background-color: #d9d3c7;
+section[data-testid="stSidebar"] .stButton > button * {
+    color: #3d3529 !important;
+}
+section[data-testid="stSidebar"] .stButton > button:hover {
+    background-color: #d9d3c7 !important;
+    color: #2c2416 !important;
 }
 section[data-testid="stSidebar"] h1,
 section[data-testid="stSidebar"] h2,
@@ -69,6 +73,11 @@ section[data-testid="stSidebar"] h3 {
     font-weight: 700 !important;
     letter-spacing: 0.08em !important;
     text-transform: uppercase;
+}
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] span {
+    color: #3d3529 !important;
 }
 
 /* ── 채팅 타이틀 ── */
@@ -82,27 +91,32 @@ section[data-testid="stSidebar"] h3 {
     letter-spacing: -0.01em;
 }
 
-/* ── 사용자 메시지 (오른쪽) ── */
+/* ── 사용자 메시지 (화면 오른쪽) ── */
 [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
     flex-direction: row-reverse !important;
+    margin-left: auto !important;
+    margin-right: 0 !important;
+    max-width: 78% !important;
     background-color: #c17f3e !important;
     border-radius: 20px 4px 20px 20px !important;
     border: none !important;
-    margin-left: 15% !important;
-    box-shadow: 0 2px 8px rgba(193,127,62,0.25) !important;
+    box-shadow: 0 2px 8px rgba(193,127,62,0.28) !important;
 }
 [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) p,
 [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) li,
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) span {
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) span,
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) div {
     color: #ffffff !important;
 }
 
-/* ── AI 메시지 (왼쪽) ── */
+/* ── AI 메시지 (화면 왼쪽) ── */
 [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
+    margin-right: auto !important;
+    margin-left: 0 !important;
+    max-width: 85% !important;
     background-color: #ffffff !important;
     border-radius: 4px 20px 20px 20px !important;
     border: 1px solid #e8e2d9 !important;
-    margin-right: 15% !important;
     box-shadow: 0 2px 10px rgba(44,36,22,0.07) !important;
 }
 [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) p,
