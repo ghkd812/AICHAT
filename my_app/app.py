@@ -158,6 +158,9 @@ def get_db():
 def get_chats_col():
     return get_db()["chats"]
 
+def get_rag_col():
+    return get_db()["rag_chunks"]
+
 def init_mongo():
     try:
         get_chats_col().create_index([("username", 1), ("chat_id", 1)], unique=True)
@@ -165,7 +168,36 @@ def init_mongo():
     except Exception as e:
         st.warning(f"MongoDB 인덱스 생성 경고: {e}")
 
+def init_rag_index():
+    """Atlas Vector Search 인덱스 생성 (이미 존재하면 무시)."""
+    try:
+        col = get_rag_col()
+        existing = list(col.list_search_indexes())
+        names = [idx.get("name") for idx in existing]
+        if "rag_vector_index" not in names:
+            col.create_search_index({
+                "name": "rag_vector_index",
+                "type": "vectorSearch",
+                "definition": {
+                    "fields": [
+                        {
+                            "type": "vector",
+                            "path": "embedding",
+                            "numDimensions": 1536,
+                            "similarity": "cosine"
+                        },
+                        {
+                            "type": "filter",
+                            "path": "username"
+                        }
+                    ]
+                }
+            })
+    except Exception:
+        pass
+
 init_mongo()
+init_rag_index()
 
 # ---------------------------------
 # OpenAI / NAVER
@@ -327,6 +359,115 @@ def read_txt(file):
 def image_to_base64(file):
     file.seek(0)
     return base64.b64encode(file.getvalue()).decode()
+
+# ---------------------------------
+# RAG — 문서 임베딩 & 벡터 검색
+# ---------------------------------
+RAG_CHUNK_SIZE = 800
+RAG_CHUNK_OVERLAP = 100
+RAG_EMBED_MODEL = "text-embedding-3-small"
+RAG_TOP_K = 5
+
+def chunk_text(text: str, chunk_size: int = RAG_CHUNK_SIZE, overlap: int = RAG_CHUNK_OVERLAP) -> list[str]:
+    """텍스트를 overlap이 있는 청크로 분할."""
+    text = text.strip()
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end].strip())
+        start += chunk_size - overlap
+    return [c for c in chunks if c]
+
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """OpenAI 임베딩 API로 벡터 생성 (배치)."""
+    texts = [t.replace("\n", " ") for t in texts]
+    response = client.embeddings.create(model=RAG_EMBED_MODEL, input=texts)
+    return [item.embedding for item in response.data]
+
+def index_document(username: str, doc_id: str, filename: str, text: str) -> int:
+    """문서를 청크로 분할 → 임베딩 → MongoDB 저장. 저장된 청크 수 반환."""
+    chunks = chunk_text(text)
+    if not chunks:
+        return 0
+
+    col = get_rag_col()
+    col.delete_many({"username": username, "doc_id": doc_id})
+
+    batch_size = 50
+    total = 0
+    for i in range(0, len(chunks), batch_size):
+        batch = chunks[i:i + batch_size]
+        embeddings = embed_texts(batch)
+        docs = [
+            {
+                "username": username,
+                "doc_id": doc_id,
+                "filename": filename,
+                "chunk_index": i + j,
+                "text": batch[j],
+                "embedding": embeddings[j],
+                "created_at": datetime.utcnow(),
+            }
+            for j in range(len(batch))
+        ]
+        col.insert_many(docs)
+        total += len(docs)
+
+    return total
+
+def search_rag_chunks(username: str, query: str, top_k: int = RAG_TOP_K) -> list[dict]:
+    """쿼리와 가장 유사한 청크를 벡터 검색으로 반환."""
+    query_vec = embed_texts([query])[0]
+    pipeline = [
+        {
+            "$vectorSearch": {
+                "index": "rag_vector_index",
+                "path": "embedding",
+                "queryVector": query_vec,
+                "numCandidates": top_k * 10,
+                "limit": top_k,
+                "filter": {"username": username},
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "filename": 1,
+                "chunk_index": 1,
+                "text": 1,
+                "score": {"$meta": "vectorSearchScore"},
+            }
+        },
+    ]
+    try:
+        return list(get_rag_col().aggregate(pipeline))
+    except Exception:
+        return []
+
+def list_rag_docs(username: str) -> list[dict]:
+    """사용자의 RAG 문서 목록 반환 (doc_id + filename + 청크 수)."""
+    pipeline = [
+        {"$match": {"username": username}},
+        {"$group": {
+            "_id": "$doc_id",
+            "filename": {"$first": "$filename"},
+            "chunks": {"$sum": 1},
+            "created_at": {"$first": "$created_at"},
+        }},
+        {"$sort": {"created_at": -1}},
+    ]
+    try:
+        return [
+            {"doc_id": d["_id"], "filename": d["filename"], "chunks": d["chunks"]}
+            for d in get_rag_col().aggregate(pipeline)
+        ]
+    except Exception:
+        return []
+
+def delete_rag_doc(username: str, doc_id: str):
+    """RAG 문서 삭제."""
+    get_rag_col().delete_many({"username": username, "doc_id": doc_id})
 
 # ---------------------------------
 # 엑셀 변환 / 구조화 데이터 추출
@@ -1429,6 +1570,12 @@ if "show_search_images" not in st.session_state:
 if "chat_search_query" not in st.session_state:
     st.session_state.chat_search_query = ""
 
+if "rag_enabled" not in st.session_state:
+    st.session_state.rag_enabled = False
+
+if "rag_indexing" not in st.session_state:
+    st.session_state.rag_indexing = False
+
 if "show_web_sources" not in st.session_state:
     st.session_state.show_web_sources = True
 
@@ -1661,6 +1808,59 @@ with st.sidebar:
     )
 
     st.caption("국내 장소/맛집/이미지는 네이버, 최신 뉴스/웹정보는 OpenAI 웹검색을 함께 사용합니다. 질문 성격에 따라 로컬·뉴스·웹문서·이미지를 자동 조합합니다.")
+
+    st.divider()
+    st.header("📚 RAG 문서 Q&A")
+
+    st.session_state.rag_enabled = st.toggle(
+        "RAG 모드 (문서 기반 답변)",
+        value=st.session_state.rag_enabled,
+    )
+    st.caption("켜면 인덱싱된 문서에서 관련 청크만 찾아 답변에 활용합니다.")
+
+    rag_username = st.session_state.get("username", "guest")
+    rag_docs = list_rag_docs(rag_username)
+
+    rag_upload = st.file_uploader(
+        "문서 인덱싱 (PDF / DOCX / TXT)",
+        type=["pdf", "docx", "txt"],
+        key="rag_uploader",
+        label_visibility="collapsed",
+    )
+
+    if rag_upload and not st.session_state.rag_indexing:
+        if st.button("인덱싱 시작", use_container_width=True):
+            st.session_state.rag_indexing = True
+            with st.spinner(f"'{rag_upload.name}' 임베딩 중..."):
+                ext = rag_upload.name.split(".")[-1].lower()
+                if ext == "pdf":
+                    raw_text = read_pdf(rag_upload)
+                elif ext == "docx":
+                    raw_text = read_docx(rag_upload)
+                else:
+                    raw_text = read_txt(rag_upload)
+
+                if raw_text and not raw_text.startswith("["):
+                    doc_id = hashlib.md5(f"{rag_username}{rag_upload.name}".encode()).hexdigest()
+                    n = index_document(rag_username, doc_id, rag_upload.name, raw_text)
+                    st.success(f"완료: {n}개 청크 저장됨")
+                else:
+                    st.error("문서 읽기 실패")
+            st.session_state.rag_indexing = False
+            st.rerun()
+
+    if rag_docs:
+        st.caption(f"인덱싱된 문서 {len(rag_docs)}건")
+        for doc in rag_docs:
+            col_d1, col_d2 = st.columns([5, 1])
+            with col_d1:
+                st.caption(f"📄 {doc['filename']} ({doc['chunks']}청크)")
+            with col_d2:
+                if st.button("🗑", key=f"rag_del_{doc['doc_id']}"):
+                    delete_rag_doc(rag_username, doc["doc_id"])
+                    st.rerun()
+    else:
+        st.caption("인덱싱된 문서 없음")
 
 # ---------------------------------
 # 현재 대화 로드
@@ -2003,6 +2203,7 @@ if has_chat_submission:
         do_search = runtime_state["do_search"]
         usage_input_tokens = 0
         usage_output_tokens = 0
+        rag_chunks_used = []
 
         try:
             history_for_model = []
@@ -2045,11 +2246,31 @@ if has_chat_submission:
 
                 search_plan = build_search_plan(submitted_text) if do_search else {"mode_labels": ["일반 응답"]}
 
+                # RAG 검색
+                rag_context = ""
+                rag_chunks_used = []
+                if st.session_state.rag_enabled:
+                    rag_chunks_used = search_rag_chunks(
+                        st.session_state.get("username", "guest"),
+                        submitted_text,
+                        top_k=RAG_TOP_K,
+                    )
+                    if rag_chunks_used:
+                        rag_context = "\n\n".join(
+                            f"[{c['filename']} / 청크{c['chunk_index']}]\n{c['text']}"
+                            for c in rag_chunks_used
+                        )
+
                 user_text = f"""사용자 질문:
 {submitted_text}
 
 첨부 파일 내용:
 {file_context if file_context else "첨부된 파일 없음"}
+"""
+                if rag_context:
+                    user_text += f"""
+RAG 문서 관련 내용 (가장 유사한 청크):
+{rag_context}
 """
 
                 if do_search and search_plan.get("use_local"):
@@ -2159,6 +2380,12 @@ if has_chat_submission:
                 f"</div>",
                 unsafe_allow_html=True
             )
+
+        if rag_chunks_used:
+            with st.expander(f"📚 RAG 참조 청크 {len(rag_chunks_used)}개", expanded=False):
+                for c in rag_chunks_used:
+                    st.markdown(f"**{c['filename']} / 청크 {c['chunk_index']}** (유사도: {c.get('score', 0):.3f})")
+                    st.caption(c["text"][:300] + ("…" if len(c["text"]) > 300 else ""))
 
         if generated_images:
             render_generated_images(generated_images)
