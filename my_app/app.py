@@ -50,8 +50,8 @@ section[data-testid="stSidebar"] {
 
 /* 모든 사이드바 버튼: 흰 배경 + 테두리로 경계 명확하게 */
 section[data-testid="stSidebar"] .stButton > button {
-    background-color: #f5f0e8 !important;
-    border: 1.5px solid #c9bfb0 !important;
+    background-color: #fdf9f4 !important;
+    border: 1.5px solid #ddd6cc !important;
     color: #3d3529 !important;
     text-align: left;
     border-radius: 10px !important;
@@ -67,8 +67,8 @@ section[data-testid="stSidebar"] .stButton > button p {
     font-weight: 500 !important;
 }
 section[data-testid="stSidebar"] .stButton > button:hover {
-    background-color: #e8ddd0 !important;
-    border-color: #a08060 !important;
+    background-color: #f0e8de !important;
+    border-color: #c17f3e !important;
     color: #2c2416 !important;
 }
 
