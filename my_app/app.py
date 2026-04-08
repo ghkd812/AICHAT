@@ -191,6 +191,27 @@ except Exception:
 client = OpenAI(api_key=api_key)
 
 # ---------------------------------
+# 토큰 비용 설정 (per 1M tokens, USD)
+# ---------------------------------
+MODEL_PRICING = {
+    "gpt-4o-mini":  {"input": 0.150,  "output": 0.600},
+    "gpt-4.1-mini": {"input": 0.400,  "output": 1.600},
+    "gpt-4.1":      {"input": 2.000,  "output": 8.000},
+    "gpt-5.4":      {"input": 3.000,  "output": 15.000},
+}
+KRW_PER_USD = 1380
+
+def calc_usage_display(model: str, input_tokens: int, output_tokens: int) -> str:
+    pricing = MODEL_PRICING.get(model, {"input": 0, "output": 0})
+    cost_usd = (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
+    cost_krw = cost_usd * KRW_PER_USD
+    total = input_tokens + output_tokens
+    return (
+        f"🔢 토큰: 입력 {input_tokens:,} · 출력 {output_tokens:,} · 합계 {total:,} &nbsp;|&nbsp; "
+        f"💰 비용: ${cost_usd:.4f} (≈ ₩{cost_krw:.1f})"
+    )
+
+# ---------------------------------
 # 로그인 관련
 # ---------------------------------
 def load_users():
@@ -1054,6 +1075,18 @@ def render_openai_web_sources(sources: list):
             unsafe_allow_html=True
         )
 
+def _extract_usage(response) -> tuple[int, int]:
+    """(input_tokens, output_tokens) 반환. 없으면 (0, 0)."""
+    try:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return 0, 0
+        inp = getattr(usage, "input_tokens", 0) or 0
+        out = getattr(usage, "output_tokens", 0) or 0
+        return int(inp), int(out)
+    except Exception:
+        return 0, 0
+
 def run_openai_web_search(model_name: str, instructions: str, history_for_model: list, user_content: list):
     common_kwargs = dict(
         model=model_name,
@@ -1076,7 +1109,7 @@ def run_openai_web_search(model_name: str, instructions: str, history_for_model:
             ],
             **common_kwargs
         )
-        return response.output_text, extract_openai_web_sources(response)
+        return response.output_text, extract_openai_web_sources(response), _extract_usage(response)
 
     except Exception:
         response = client.responses.create(
@@ -1096,7 +1129,7 @@ def run_openai_web_search(model_name: str, instructions: str, history_for_model:
             ],
             **common_kwargs
         )
-        return response.output_text, extract_openai_web_sources(response)
+        return response.output_text, extract_openai_web_sources(response), _extract_usage(response)
 
 def is_image_generation_request(query: str) -> bool:
     matcher = globals().get("should_generate_image")
@@ -1248,6 +1281,50 @@ def delete_chat(chat_id: str):
     username = st.session_state.get("username", "guest")
     get_chats_col().delete_one({"username": username, "chat_id": chat_id})
 
+def search_chats(keyword: str):
+    """키워드로 대화 제목 및 메시지 내용을 검색한다."""
+    username = st.session_state.get("username", "guest")
+    if not keyword.strip():
+        return []
+
+    regex = {"$regex": keyword.strip(), "$options": "i"}
+    docs = list(
+        get_chats_col()
+        .find(
+            {
+                "username": username,
+                "$or": [
+                    {"title": regex},
+                    {"messages.content": regex},
+                ]
+            },
+            {"_id": 0, "chat_id": 1, "title": 1, "updated_at": 1, "messages": 1}
+        )
+        .sort("updated_at", -1)
+        .limit(30)
+    )
+
+    results = []
+    for doc in docs:
+        snippets = []
+        kw_lower = keyword.strip().lower()
+        for msg in doc.get("messages", []):
+            content = msg.get("content", "")
+            if kw_lower in content.lower():
+                idx = content.lower().find(kw_lower)
+                start = max(0, idx - 25)
+                end = min(len(content), idx + len(keyword) + 60)
+                snippet = ("…" if start > 0 else "") + content[start:end].replace("\n", " ") + ("…" if end < len(content) else "")
+                snippets.append(snippet)
+                if len(snippets) >= 2:
+                    break
+        results.append({
+            "id": doc["chat_id"],
+            "title": doc.get("title", "제목 없음"),
+            "snippets": snippets,
+        })
+    return results
+
 def make_title_from_messages(messages):
     for msg in messages:
         if msg["role"] == "user":
@@ -1349,6 +1426,9 @@ if "auto_search_only" not in st.session_state:
 if "show_search_images" not in st.session_state:
     st.session_state.show_search_images = True
 
+if "chat_search_query" not in st.session_state:
+    st.session_state.chat_search_query = ""
+
 if "show_web_sources" not in st.session_state:
     st.session_state.show_web_sources = True
 
@@ -1434,32 +1514,77 @@ with st.sidebar:
 
     st.divider()
 
-    for chat in list_chats():
-        col1, col2 = st.columns([4, 1])
+    search_input = st.text_input(
+        "대화 검색",
+        value=st.session_state.chat_search_query,
+        placeholder="키워드로 검색...",
+        key="sidebar_chat_search",
+        label_visibility="collapsed",
+    )
+    if search_input != st.session_state.chat_search_query:
+        st.session_state.chat_search_query = search_input
+        st.rerun()
 
-        with col1:
-            if st.button(chat["title"], key=f"open_{chat['id']}", use_container_width=True):
-                st.session_state.current_chat_id = chat["id"]
-                st.session_state.uploaded_files_cache = []
-                st.session_state.last_result_df = None
-                st.session_state.last_preview_html = None
-                st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
-                st.session_state.last_generated_images = []
-                st.session_state.last_generated_prompt = ""
-                st.session_state.last_paste_signature = ""
-                st.rerun()
+    if st.session_state.chat_search_query.strip():
+        search_results = search_chats(st.session_state.chat_search_query)
+        if search_results:
+            st.caption(f"검색 결과 {len(search_results)}건")
+            for res in search_results:
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    if st.button(res["title"], key=f"srch_{res['id']}", use_container_width=True):
+                        st.session_state.current_chat_id = res["id"]
+                        st.session_state.chat_search_query = ""
+                        st.session_state.uploaded_files_cache = []
+                        st.session_state.last_result_df = None
+                        st.session_state.last_preview_html = None
+                        st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
+                        st.session_state.last_generated_images = []
+                        st.session_state.last_generated_prompt = ""
+                        st.session_state.last_paste_signature = ""
+                        st.rerun()
+                with col2:
+                    if st.button("🗑", key=f"srch_del_{res['id']}", use_container_width=True):
+                        deleting_current = (st.session_state.current_chat_id == res["id"])
+                        delete_chat(res["id"])
+                        remaining = list_chats()
+                        if deleting_current:
+                            if remaining:
+                                st.session_state.current_chat_id = remaining[0]["id"]
+                            else:
+                                st.session_state.current_chat_id = create_new_chat()
+                        st.rerun()
+                for snippet in res["snippets"]:
+                    st.caption(f"…{snippet}…")
+        else:
+            st.caption("검색 결과 없음")
+    else:
+        for chat in list_chats():
+            col1, col2 = st.columns([4, 1])
 
-        with col2:
-            if st.button("🗑", key=f"del_{chat['id']}", use_container_width=True):
-                deleting_current = (st.session_state.current_chat_id == chat["id"])
-                delete_chat(chat["id"])
-                remaining = list_chats()
-                if deleting_current:
-                    if remaining:
-                        st.session_state.current_chat_id = remaining[0]["id"]
-                    else:
-                        st.session_state.current_chat_id = create_new_chat()
-                st.rerun()
+            with col1:
+                if st.button(chat["title"], key=f"open_{chat['id']}", use_container_width=True):
+                    st.session_state.current_chat_id = chat["id"]
+                    st.session_state.uploaded_files_cache = []
+                    st.session_state.last_result_df = None
+                    st.session_state.last_preview_html = None
+                    st.session_state.last_preview_blocks = {"html": "", "css": "", "js": ""}
+                    st.session_state.last_generated_images = []
+                    st.session_state.last_generated_prompt = ""
+                    st.session_state.last_paste_signature = ""
+                    st.rerun()
+
+            with col2:
+                if st.button("🗑", key=f"del_{chat['id']}", use_container_width=True):
+                    deleting_current = (st.session_state.current_chat_id == chat["id"])
+                    delete_chat(chat["id"])
+                    remaining = list_chats()
+                    if deleting_current:
+                        if remaining:
+                            st.session_state.current_chat_id = remaining[0]["id"]
+                        else:
+                            st.session_state.current_chat_id = create_new_chat()
+                    st.rerun()
 
     st.divider()
     st.header("Agent 역할")
@@ -1876,6 +2001,8 @@ if has_chat_submission:
         generated_images = runtime_state["generated_images"]
         search_plan = runtime_state["search_plan"]
         do_search = runtime_state["do_search"]
+        usage_input_tokens = 0
+        usage_output_tokens = 0
 
         try:
             history_for_model = []
@@ -1967,8 +2094,11 @@ if has_chat_submission:
                 if image_inputs:
                     user_content.extend(image_inputs)
 
+                usage_input_tokens = 0
+                usage_output_tokens = 0
+
                 if do_search and search_plan.get("use_openai_web"):
-                    full_text, openai_web_sources = run_openai_web_search(
+                    full_text, openai_web_sources, (usage_input_tokens, usage_output_tokens) = run_openai_web_search(
                         model_name=st.session_state.model_name,
                         instructions=build_system_prompt(
                             st.session_state.answer_length,
@@ -2003,6 +2133,11 @@ if has_chat_submission:
                             full_text += event.delta
                             placeholder.markdown(full_text + "▌")
                         elif event.type == "response.completed":
+                            try:
+                                usage_input_tokens = event.response.usage.input_tokens or 0
+                                usage_output_tokens = event.response.usage.output_tokens or 0
+                            except Exception:
+                                pass
                             break
 
                     placeholder.markdown(full_text)
@@ -2016,6 +2151,14 @@ if has_chat_submission:
 
         messages.append({"role": "assistant", "content": full_text})
         append_message(chat_id, "assistant", full_text)
+
+        if usage_input_tokens or usage_output_tokens:
+            st.markdown(
+                f"<div style='font-size:0.8rem;color:#8a7560;margin-top:4px'>"
+                f"{calc_usage_display(st.session_state.model_name, usage_input_tokens, usage_output_tokens)}"
+                f"</div>",
+                unsafe_allow_html=True
+            )
 
         if generated_images:
             render_generated_images(generated_images)
