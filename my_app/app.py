@@ -29,92 +29,181 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+/* ── 전체 배경 ── */
+.stApp {
+    background-color: #f5f0e8;
+    font-family: 'Inter', sans-serif;
+}
 .block-container {
     padding-top: 1.5rem;
+    max-width: 860px !important;
 }
+
+/* ── 사이드바 ── */
 section[data-testid="stSidebar"] {
-    width: 320px !important;
+    width: 300px !important;
+    background-color: #ede8df !important;
+    border-right: 1px solid #d9d3c7;
 }
-.chat-title {
-    font-size: clamp(1.35rem, 2.2vw, 1.9rem);
-    font-weight: 800;
-    margin-bottom: 1rem;
-    line-height: 3.0;
-    white-space: normal !important;
-    word-break: keep-all;
-    overflow-wrap: anywhere;
+section[data-testid="stSidebar"] .stButton button {
+    background: transparent;
+    border: none;
+    color: #3d3529;
+    text-align: left;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    padding: 0.45rem 0.75rem;
     width: 100%;
+    transition: background 0.15s;
 }
-.preview-wrap {
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 10px;
-    background: #fafafa;
-    margin-top: 8px;
+section[data-testid="stSidebar"] .stButton button:hover {
+    background-color: #d9d3c7;
 }
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3 {
+    color: #2c2416 !important;
+    font-size: 0.78rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase;
+}
+
+/* ── 채팅 타이틀 ── */
+.chat-title {
+    font-family: 'Crimson Pro', Georgia, serif;
+    font-size: clamp(1.6rem, 2.5vw, 2.2rem);
+    font-weight: 600;
+    color: #2c2416;
+    margin-bottom: 0.5rem;
+    line-height: 2.0;
+    letter-spacing: -0.01em;
+}
+
+/* ── 사용자 메시지 (오른쪽) ── */
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+    flex-direction: row-reverse !important;
+    background-color: #c17f3e !important;
+    border-radius: 20px 4px 20px 20px !important;
+    border: none !important;
+    margin-left: 15% !important;
+    box-shadow: 0 2px 8px rgba(193,127,62,0.25) !important;
+}
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) p,
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) li,
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) span {
+    color: #ffffff !important;
+}
+
+/* ── AI 메시지 (왼쪽) ── */
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
+    background-color: #ffffff !important;
+    border-radius: 4px 20px 20px 20px !important;
+    border: 1px solid #e8e2d9 !important;
+    margin-right: 15% !important;
+    box-shadow: 0 2px 10px rgba(44,36,22,0.07) !important;
+}
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) p,
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) li,
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) span {
+    color: #3d3529 !important;
+}
+
+/* ── 채팅 입력창 ── */
+.stChatInput textarea {
+    background-color: #ffffff !important;
+    border: 1.5px solid #c9c2b6 !important;
+    border-radius: 16px !important;
+    color: #2c2416 !important;
+    font-size: 0.95rem !important;
+}
+.stChatInput textarea:focus {
+    border-color: #c17f3e !important;
+    box-shadow: 0 0 0 3px rgba(193,127,62,0.12) !important;
+}
+
+/* ── 검색 결과 카드 ── */
 .result-card {
     padding: 14px 16px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid #ddd6cc;
     border-radius: 14px;
-    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    background: #ffffff;
     margin-bottom: 10px;
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    box-shadow: 0 2px 10px rgba(44,36,22,0.05);
 }
 .result-title {
-    font-weight: 700;
+    font-weight: 600;
+    color: #2c2416;
     margin-bottom: 6px;
+    font-size: 0.97rem;
 }
 .result-meta {
-    color: #555;
-    font-size: 0.95rem;
+    color: #6b5e4e;
+    font-size: 0.93rem;
     line-height: 1.55;
 }
 .result-meta a {
-    color: #2563eb;
+    color: #c17f3e;
     text-decoration: none;
 }
-.result-meta a:hover {
-    text-decoration: underline;
-}
+.result-meta a:hover { text-decoration: underline; }
+
+/* ── 검색 요약 배지 ── */
 .search-summary {
     padding: 12px 14px;
     border-radius: 14px;
-    border: 1px solid #dbeafe;
-    background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+    border: 1px solid #ddd6cc;
+    background: #faf7f3;
     margin-bottom: 12px;
 }
 .search-badge {
     display: inline-block;
     padding: 0.2rem 0.55rem;
     border-radius: 999px;
-    background: #dbeafe;
-    color: #1d4ed8;
+    background: #f0e8da;
+    color: #7a5c35;
     font-size: 0.8rem;
-    font-weight: 700;
+    font-weight: 600;
     margin-right: 0.35rem;
     margin-bottom: 0.35rem;
 }
+
+/* ── 이미지 카드 ── */
 .image-card {
-    border: 1px solid #e5e7eb;
+    border: 1px solid #ddd6cc;
     border-radius: 18px;
     overflow: hidden;
     background: #ffffff;
-    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+    box-shadow: 0 4px 16px rgba(44,36,22,0.07);
     margin-bottom: 14px;
 }
-.image-card-meta {
-    padding: 12px 14px 14px 14px;
-}
+.image-card-meta { padding: 12px 14px 14px; }
 .image-card-title {
-    font-weight: 700;
+    font-weight: 600;
+    color: #2c2416;
     margin-bottom: 4px;
     line-height: 1.4;
 }
 .image-card-sub {
-    color: #64748b;
+    color: #8a7560;
     font-size: 0.88rem;
     margin-bottom: 8px;
 }
+
+/* ── 미리보기 ── */
+.preview-wrap {
+    border: 1px solid #ddd6cc;
+    border-radius: 12px;
+    padding: 10px;
+    background: #faf7f3;
+    margin-top: 8px;
+}
+
+/* ── 공통 텍스트 ── */
+h1, h2, h3, h4 { color: #2c2416 !important; }
+p, li { color: #3d3529; }
 </style>
 """, unsafe_allow_html=True)
 
