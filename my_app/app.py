@@ -22,7 +22,7 @@ from pymongo.server_api import ServerApi
 # 기본 설정
 # ---------------------------------
 st.set_page_config(
-    page_title="CUSTOM 챗봇",
+    page_title="Hazel",
     page_icon="🤖",
     layout="wide"
 )
@@ -117,8 +117,6 @@ section[data-testid="stSidebar"] {
 }
 </style>
 """, unsafe_allow_html=True)
-
-st.markdown('<div class="chat-title">🤖 CUSTOM 챗봇</div>', unsafe_allow_html=True)
 
 # ---------------------------------
 # MongoDB
@@ -1740,7 +1738,7 @@ if not st.session_state.logged_in:
         st.markdown("""
         <div class="login-card">
             <span class="login-logo">🤖</span>
-            <div class="login-title">CUSTOM 챗봇</div>
+            <div class="login-title">Hazel</div>
             <div class="login-subtitle">계속하려면 로그인하세요</div>
         </div>
         """, unsafe_allow_html=True)
@@ -1772,6 +1770,8 @@ if not st.session_state.logged_in:
         """, unsafe_allow_html=True)
 
     st.stop()
+
+st.markdown('<div class="chat-title">🤖 Hazel</div>', unsafe_allow_html=True)
 
 # ---------------------------------
 # 로그인 후 현재 대화 초기화
