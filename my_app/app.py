@@ -43,9 +43,13 @@ st.markdown("""
 
 /* ── 사이드바 ── */
 section[data-testid="stSidebar"] {
-    width: 340px !important;
     background-color: #ede8df !important;
     border-right: 1px solid #d9d3c7;
+}
+/* 열렸을 때만 너비 지정 (접힘 동작 방해 방지) */
+section[data-testid="stSidebar"][aria-expanded="true"] {
+    width: 340px !important;
+    min-width: 340px !important;
 }
 
 /* 모든 사이드바 버튼: 흰 배경 + 테두리로 경계 명확하게 */
@@ -241,12 +245,27 @@ section[data-testid="stSidebar"] span {
 h1, h2, h3, h4 { color: #2c2416 !important; }
 p, li { color: #3d3529; }
 
-/* ── 사이드바 토글(햄버거) 항상 표시 ── */
+/* ── 사이드바 >> 토글 버튼 항상 표시 & 스타일 ── */
 [data-testid="collapsedControl"],
 [data-testid="stSidebarCollapsedControl"] {
     opacity: 1 !important;
     pointer-events: auto !important;
     visibility: visible !important;
+    z-index: 9999 !important;
+}
+[data-testid="collapsedControl"] button,
+[data-testid="stSidebarCollapsedControl"] button {
+    background-color: rgba(245,240,232,0.92) !important;
+    border: 1.5px solid #c9bfb0 !important;
+    border-radius: 8px !important;
+    color: #6b5e4e !important;
+    width: 32px !important;
+    height: 32px !important;
+}
+[data-testid="collapsedControl"] button:hover,
+[data-testid="stSidebarCollapsedControl"] button:hover {
+    background-color: #f0e8de !important;
+    border-color: #c17f3e !important;
 }
 
 /* ── 모바일: 툴바 강제 표시, 토글 버튼 숨김 ── */
@@ -2484,28 +2503,29 @@ def mount_toolbar_toggle():
                 btn.innerHTML = '⋯';
                 Object.assign(btn.style, {
                     position      : 'fixed',
-                    top           : '6px',
-                    right         : '6px',
+                    top           : '8px',
+                    right         : '8px',
                     zIndex        : '99999',
-                    width         : '22px',
-                    height        : '22px',
-                    background    : 'rgba(245,240,232,0.55)',
-                    border        : '1px solid rgba(200,185,170,0.5)',
-                    borderRadius  : '6px',
+                    width         : '30px',
+                    height        : '30px',
+                    background    : 'rgba(245,240,232,0.92)',
+                    border        : '1.5px solid #c9bfb0',
+                    borderRadius  : '8px',
                     cursor        : 'pointer',
-                    fontSize      : '14px',
+                    fontSize      : '16px',
                     lineHeight    : '1',
-                    color         : '#8a7560',
+                    color         : '#6b5e4e',
                     display       : 'flex',
                     alignItems    : 'center',
                     justifyContent: 'center',
                     padding       : '0',
-                    opacity       : '0.35',
-                    transition    : 'opacity 0.2s, background 0.2s',
+                    opacity       : '0.85',
+                    transition    : 'opacity 0.2s, border-color 0.2s, background 0.2s',
                     backdropFilter: 'blur(4px)',
+                    boxShadow     : '0 1px 4px rgba(44,36,22,0.12)',
                 });
-                btn.onmouseenter = () => { btn.style.opacity = '1'; btn.style.background = 'rgba(245,240,232,0.95)'; };
-                btn.onmouseleave = () => { btn.style.opacity = '0.35'; btn.style.background = 'rgba(245,240,232,0.55)'; };
+                btn.onmouseenter = () => { btn.style.opacity = '1'; btn.style.borderColor = '#c17f3e'; btn.style.background = '#f5f0e8'; };
+                btn.onmouseleave = () => { btn.style.opacity = '0.85'; btn.style.borderColor = '#c9bfb0'; btn.style.background = 'rgba(245,240,232,0.92)'; };
                 btn.onclick = () => applyState(!isVisible());
                 document.body.appendChild(btn);
             }
