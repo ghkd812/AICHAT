@@ -241,6 +241,25 @@ section[data-testid="stSidebar"] span {
 h1, h2, h3, h4 { color: #2c2416 !important; }
 p, li { color: #3d3529; }
 
+/* ── 사이드바 토글(햄버거) 항상 표시 ── */
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"] {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    visibility: visible !important;
+}
+
+/* ── 모바일: 툴바 강제 표시, 토글 버튼 숨김 ── */
+@media (max-width: 768px) {
+    [data-testid="stToolbar"] {
+        opacity: 1 !important;
+        pointer-events: auto !important;
+    }
+    #__toolbar_toggle_btn__ {
+        display: none !important;
+    }
+}
+
 /* ── Streamlit 툴바 숨김/표시 토글 ── */
 body.hide-streamlit-toolbar [data-testid="stToolbar"],
 body.hide-streamlit-toolbar [data-testid="stStatusWidget"],
@@ -2431,17 +2450,28 @@ def mount_toolbar_toggle():
 
             const STORAGE_KEY = 'hazel_toolbar_visible';
 
+            function isMobile() {
+                return window.innerWidth <= 768;
+            }
+
             function isVisible() {
                 return localStorage.getItem(STORAGE_KEY) === 'true';
             }
 
             function applyState(visible) {
+                if (isMobile()) return; // 모바일은 항상 표시
                 const toolbar = document.querySelector('[data-testid="stToolbar"]');
                 if (toolbar) {
                     toolbar.style.opacity        = visible ? '1' : '0';
                     toolbar.style.pointerEvents  = visible ? 'auto' : 'none';
                     toolbar.style.transition     = 'opacity 0.25s ease';
                 }
+                // 사이드바 토글은 항상 보이도록 유지
+                ['[data-testid="collapsedControl"]','[data-testid="stSidebarCollapsedControl"]']
+                    .forEach(sel => {
+                        const el = document.querySelector(sel);
+                        if (el) { el.style.opacity = '1'; el.style.pointerEvents = 'auto'; }
+                    });
                 localStorage.setItem(STORAGE_KEY, visible ? 'true' : 'false');
                 const btn = document.getElementById('__toolbar_toggle_btn__');
                 if (btn) btn.title = visible ? '툴바 숨기기' : '툴바 보이기';
@@ -2493,11 +2523,13 @@ def mount_toolbar_toggle():
 
             // Streamlit 리렌더 후에도 상태 재적용
             const observer = new MutationObserver(() => {
-                const toolbar = document.querySelector('[data-testid="stToolbar"]');
-                if (toolbar && (toolbar.style.opacity === '' || toolbar.style.opacity === '1') && !isVisible()) {
-                    applyState(false);
+                if (!isMobile()) {
+                    const toolbar = document.querySelector('[data-testid="stToolbar"]');
+                    if (toolbar && (toolbar.style.opacity === '' || toolbar.style.opacity === '1') && !isVisible()) {
+                        applyState(false);
+                    }
+                    createBtn();
                 }
-                createBtn();
             });
             observer.observe(document.body, { childList: true, subtree: true });
         })();
