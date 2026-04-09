@@ -4,6 +4,7 @@ import re
 import base64
 import hashlib
 import html
+import time
 from datetime import datetime
 import certifi
 
@@ -357,18 +358,33 @@ MODEL_PRICING = {
     "gpt-4.1-mini": {"input": 0.400,  "output": 1.600},
     "gpt-4.1":      {"input": 2.000,  "output": 8.000},
     "gpt-5.4":      {"input": 3.000,  "output": 15.000},
+    # 추론 모델 (reasoning tokens은 output 단가 적용)
+    "o4-mini":      {"input": 1.100,  "output": 4.400},
+    "o3":           {"input": 10.000, "output": 40.000},
 }
 KRW_PER_USD = 1380
 
-def calc_usage_display(model: str, input_tokens: int, output_tokens: int) -> str:
+# 추론 모델 집합
+REASONING_MODELS = {"o4-mini", "o3"}
+
+def is_reasoning_model(model: str) -> bool:
+    return model in REASONING_MODELS
+
+def calc_usage_display(model: str, input_tokens: int, output_tokens: int,
+                       reasoning_tokens: int = 0) -> str:
     pricing = MODEL_PRICING.get(model, {"input": 0, "output": 0})
     cost_usd = (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
     cost_krw = cost_usd * KRW_PER_USD
     total = input_tokens + output_tokens
-    return (
-        f"🔢 토큰: 입력 {input_tokens:,} · 출력 {output_tokens:,} · 합계 {total:,} &nbsp;|&nbsp; "
-        f"💰 비용: ${cost_usd:.4f} (≈ ₩{cost_krw:.1f})"
-    )
+    parts = [
+        f"🔢 토큰: 입력 {input_tokens:,} · 출력 {output_tokens:,}"
+    ]
+    if reasoning_tokens:
+        parts.append(f"· 추론 {reasoning_tokens:,}")
+    parts.append(f"· 합계 {total:,}")
+    token_str = " ".join(parts)
+    cost_str = f"💰 비용: ${cost_usd:.4f} (≈ ₩{cost_krw:.1f})"
+    return f"{token_str} &nbsp;|&nbsp; {cost_str}"
 
 # ---------------------------------
 # 로그인 관련
@@ -1676,6 +1692,9 @@ if "answer_length" not in st.session_state:
 if "model_name" not in st.session_state:
     st.session_state.model_name = "gpt-4.1-mini"
 
+if "reasoning_effort" not in st.session_state:
+    st.session_state.reasoning_effort = "medium"
+
 if "last_result_df" not in st.session_state:
     st.session_state.last_result_df = None
 
@@ -2051,13 +2070,30 @@ with st.sidebar:
     st.divider()
     st.header("답변 설정")
 
-    _model_opts = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1", "gpt-5.4"]
+    _model_opts = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1", "gpt-5.4", "o4-mini", "o3"]
     if st.session_state.model_name not in _model_opts:
         st.session_state.model_name = "gpt-4.1-mini"
     st.session_state.model_name = st.selectbox(
         "모델", _model_opts,
-        index=_model_opts.index(st.session_state.model_name)
+        index=_model_opts.index(st.session_state.model_name),
+        format_func=lambda m: {
+            "gpt-4o-mini":  "GPT-4o mini",
+            "gpt-4.1-mini": "GPT-4.1 mini",
+            "gpt-4.1":      "GPT-4.1",
+            "gpt-5.4":      "GPT-5.4",
+            "o4-mini":      "o4-mini 🧠 추론",
+            "o3":           "o3 🧠 추론 (고성능)",
+        }.get(m, m)
     )
+
+    if is_reasoning_model(st.session_state.model_name):
+        st.session_state.reasoning_effort = st.select_slider(
+            "추론 강도",
+            options=["low", "medium", "high"],
+            value=st.session_state.reasoning_effort,
+            format_func=lambda v: {"low": "빠름 (low)", "medium": "균형 (medium)", "high": "깊게 (high)"}.get(v, v)
+        )
+        st.caption("강도가 높을수록 더 깊이 생각하지만 시간이 걸립니다.")
 
     _len_opts = ["짧게", "보통", "자세히"]
     if st.session_state.answer_length not in _len_opts:
@@ -2488,6 +2524,7 @@ if has_chat_submission:
         do_search = runtime_state["do_search"]
         usage_input_tokens = 0
         usage_output_tokens = 0
+        usage_reasoning_tokens = 0
         rag_chunks_used = []
 
         try:
@@ -2614,6 +2651,67 @@ RAG 문서 관련 내용 (가장 유사한 청크):
                         user_content=user_content
                     )
                     placeholder.markdown(full_text)
+                elif is_reasoning_model(st.session_state.model_name):
+                    # ── 추론 모델: 스피너 표시 후 완성된 응답 수신 ──
+                    effort = st.session_state.reasoning_effort
+                    effort_label = {"low": "빠르게", "medium": "균형있게", "high": "깊게"}.get(effort, effort)
+                    placeholder.markdown(f"🧠 **{effort_label} 생각하는 중...**")
+                    _t0 = time.time()
+
+                    # 히스토리를 chat completions 형식으로 변환
+                    _chat_messages = [
+                        {"role": "developer", "content": build_system_prompt(
+                            st.session_state.answer_length, current_agent_role
+                        )}
+                    ]
+                    for msg in history_for_model:
+                        role = msg.get("role", "user")
+                        content = msg.get("content", "")
+                        if isinstance(content, list):
+                            # input_text → text 변환
+                            converted = []
+                            for part in content:
+                                if isinstance(part, dict):
+                                    if part.get("type") == "input_text":
+                                        converted.append({"type": "text", "text": part.get("text", "")})
+                                    elif part.get("type") == "input_image":
+                                        converted.append(part)
+                                    else:
+                                        converted.append(part)
+                                else:
+                                    converted.append(part)
+                            _chat_messages.append({"role": role, "content": converted})
+                        else:
+                            _chat_messages.append({"role": role, "content": content})
+
+                    # 현재 사용자 메시지 변환
+                    _user_content_chat = []
+                    for part in user_content:
+                        if isinstance(part, dict) and part.get("type") == "input_text":
+                            _user_content_chat.append({"type": "text", "text": part.get("text", "")})
+                        elif isinstance(part, dict) and part.get("type") == "input_image":
+                            _user_content_chat.append(part)
+                        else:
+                            _user_content_chat.append(part)
+                    _chat_messages.append({"role": "user", "content": _user_content_chat})
+
+                    response = client.chat.completions.create(
+                        model=st.session_state.model_name,
+                        messages=_chat_messages,
+                        reasoning_effort=effort,
+                    )
+                    elapsed = time.time() - _t0
+                    full_text = response.choices[0].message.content or ""
+                    try:
+                        usage_input_tokens = response.usage.prompt_tokens or 0
+                        usage_output_tokens = response.usage.completion_tokens or 0
+                        usage_reasoning_tokens = getattr(
+                            response.usage.completion_tokens_details, "reasoning_tokens", 0
+                        ) or 0
+                    except Exception:
+                        pass
+                    placeholder.markdown(full_text)
+                    st.caption(f"🧠 추론 완료 ({elapsed:.1f}초) · 추론 토큰 {usage_reasoning_tokens:,}")
                 else:
                     stream = client.responses.create(
                         model=st.session_state.model_name,
@@ -2661,7 +2759,7 @@ RAG 문서 관련 내용 (가장 유사한 청크):
         if usage_input_tokens or usage_output_tokens:
             st.markdown(
                 f"<div style='font-size:0.8rem;color:#8a7560;margin-top:4px'>"
-                f"{calc_usage_display(st.session_state.model_name, usage_input_tokens, usage_output_tokens)}"
+                f"{calc_usage_display(st.session_state.model_name, usage_input_tokens, usage_output_tokens, usage_reasoning_tokens)}"
                 f"</div>",
                 unsafe_allow_html=True
             )
