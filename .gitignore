@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+.env
+
+# 사용자 계정 파일 (절대 커밋 금지)
+users.json
+my_app/users.json
+
+# 대화 기록 (로컬 저장용)
+chats/
+my_app/chats/
+
+# Streamlit secrets
+.streamlit/secrets.toml

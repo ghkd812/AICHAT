@@ -367,6 +367,36 @@ KRW_PER_USD = 1380
 # 추론 모델 집합
 REASONING_MODELS = {"o4-mini", "o3"}
 
+# ---------------------------------
+# 여권/비자 전용 시스템 프롬프트
+# ---------------------------------
+PASSPORT_SYSTEM_PROMPT = """\
+너는 여권, 비자, 외국인등록증 등 신분증 문서를 분석하는 전문 AI다.
+이미지를 직접 판독하여 아래 항목을 추출하고, 반드시 JSON 코드블록 하나만 출력한다.
+설명 텍스트, 인사말, 부가 설명 없이 ```json ... ``` 블록만 출력한다.
+
+출력 형식 (JSON 배열, 이미지 1장당 객체 1개):
+[
+  {
+    "file_name": "파일명",
+    "doc_type": "여권 | 비자 | 외국인등록증 | 기타",
+    "name": "영문 성명",
+    "nationality": "국적",
+    "passport_no": "여권/문서번호",
+    "birth_date": "YYYY-MM-DD",
+    "issue_date": "YYYY-MM-DD",
+    "expiry_date": "YYYY-MM-DD",
+    "visa_type": "비자 종류 (여권이면 null)",
+    "stay_period": "체류기간 (없으면 null)"
+  }
+]
+
+규칙:
+- 이미지가 여러 장이면 배열 원소도 여러 개
+- 읽기 어려운 값은 null
+- 날짜는 반드시 YYYY-MM-DD 형식
+"""
+
 def is_reasoning_model(model: str) -> bool:
     return model in REASONING_MODELS
 
@@ -502,6 +532,41 @@ def read_txt(file):
 def image_to_base64(file):
     file.seek(0)
     return base64.b64encode(file.getvalue()).decode()
+
+def analyze_passport_images(files: list):
+    """여권/비자 이미지 리스트를 받아 (raw_text, DataFrame | None) 반환"""
+    if not files:
+        return "", None
+
+    names = ", ".join(f.name for f in files)
+    content = [
+        {
+            "type": "input_text",
+            "text": f"첨부 이미지 파일명: {names}\n위 이미지들을 분석해서 JSON으로만 출력해줘."
+        }
+    ]
+    for f in files:
+        content.append({
+            "type": "input_image",
+            "image_url": f"data:{f.type};base64,{image_to_base64(f)}"
+        })
+
+    try:
+        resp = client.responses.create(
+            model="gpt-4.1",
+            input=[
+                {"role": "system", "content": PASSPORT_SYSTEM_PROMPT},
+                {"role": "user",   "content": content}
+            ],
+            stream=False
+        )
+        raw = resp.output_text or ""
+    except Exception as e:
+        return f"[API 오류: {e}]", None
+
+    data = extract_json_block(raw)
+    df   = json_to_dataframe(data)
+    return raw, df
 
 # ---------------------------------
 # RAG — 문서 임베딩 & 벡터 검색
@@ -2190,6 +2255,48 @@ current_agent_role = current_data.get("agent_role", "").strip()
 
 if current_agent_role:
     st.info(f"🧠 현재 대화 Agent 역할: {current_agent_role}")
+
+# ---------------------------------
+# 🛂 여권 / 비자 전용 분석 섹션
+# ---------------------------------
+with st.expander("🛂 여권 / 비자 분석", expanded=False):
+    st.caption("이미지를 업로드하면 AI가 자동으로 정보를 추출합니다. 채팅창과 별도로 동작합니다.")
+
+    passport_files = st.file_uploader(
+        "여권 · 비자 · 외국인등록증 이미지",
+        type=["png", "jpg", "jpeg", "webp"],
+        accept_multiple_files=True,
+        key="passport_uploader"
+    )
+
+    if passport_files:
+        thumb_cols = st.columns(min(len(passport_files), 4))
+        for idx, pf in enumerate(passport_files):
+            with thumb_cols[idx % 4]:
+                st.image(pf, caption=pf.name, use_container_width=True)
+
+        if st.button("분석하기", type="primary", use_container_width=True, key="passport_analyze_btn"):
+            with st.spinner("AI가 이미지를 분석 중입니다..."):
+                p_raw, p_df = analyze_passport_images(passport_files)
+
+            if p_df is not None and not p_df.empty:
+                st.success("분석 완료!")
+                st.dataframe(p_df, use_container_width=True)
+                p_excel = dataframe_to_excel_bytes(p_df, sheet_name="여권비자분석")
+                st.download_button(
+                    label="📥 Excel 다운로드",
+                    data=p_excel,
+                    file_name="passport_visa_result.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="passport_excel_dl"
+                )
+            else:
+                st.warning("정보를 추출하지 못했습니다. 이미지를 확인해주세요.")
+                if p_raw:
+                    with st.expander("AI 원본 응답"):
+                        st.text(p_raw)
+
+st.divider()
 
 # ---------------------------------
 # 파일 첨부 안내 (채팅창 첨부 사용)

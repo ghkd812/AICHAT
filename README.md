@@ -1,13 +1,6 @@
-## MY CUSTOM AI CHAT BOT
-This is for IT Coworker
-Keep develop the function and add new skills.
-This chatbot use openai api, naver search api, openai websearch api, openai image generator api.
-This is connecting with Mongo DB.
-and publish tool is streamlit
-This is for private using.
 # 🤖 내 AI 챗봇 (Hazel)
 
-담당자를 위한 개인용 AI 어시스턴트입니다.
+사내 IT 담당자를 위한 개인용 AI 어시스턴트입니다.
 OpenAI API 기반으로 구축되었으며 Streamlit으로 웹 UI를 제공합니다.
 
 ---
@@ -127,6 +120,6 @@ streamlit run app.py
 ---
 
 ## 주의사항
-- 프라이빗 서비스입니다.
+- 사내 전용 프라이빗 서비스입니다.
 - `users.json`은 절대 공개 저장소에 커밋하지 마세요.
 - API 키는 반드시 환경변수 또는 Streamlit secrets로 관리하세요.
