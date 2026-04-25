@@ -123,3 +123,7 @@ streamlit run app.py
 - 사내 전용 프라이빗 서비스입니다.
 - `users.json`은 절대 공개 저장소에 커밋하지 마세요.
 - API 키는 반드시 환경변수 또는 Streamlit secrets로 관리하세요.
+
+## 샘플이미지
+<img width="1646" height="1148" alt="image" src="https://github.com/user-attachments/assets/e2227442-9103-490f-86ac-6654dacf711e" />
+
