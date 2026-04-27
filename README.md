@@ -125,5 +125,14 @@ streamlit run app.py
 - API 키는 반드시 환경변수 또는 Streamlit secrets로 관리하세요.
 
 ## 샘플이미지
+### 기본 채팅 화
 <img width="1646" height="1148" alt="image" src="https://github.com/user-attachments/assets/e2227442-9103-490f-86ac-6654dacf711e" />
+### html + css 시안 전달 화면
+<img width="1091" height="1107" alt="image" src="https://github.com/user-attachments/assets/dd60d398-8546-410d-9e9a-630bc0d0ab3b" />
+### RAG 모드 - 문서 인덱싱 후 문서 기반 답
+<img width="1603" height="1087" alt="image" src="https://github.com/user-attachments/assets/387ece39-4cab-4e9c-9d30-1ca73828fde2" />
+### NAVER API & OPENAI WEB SEARCH API 활용
+<img width="1008" height="1142" alt="image" src="https://github.com/user-attachments/assets/47489705-076a-490b-ae33-0b9896840fea" />
+
+
 
