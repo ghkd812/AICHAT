@@ -2643,7 +2643,7 @@ if has_chat_submission:
                     "content": msg["content"]
                 })
 
-            if is_image_generation_request(submitted_text) and not should_prioritize_code_preview(submitted_text, effective_files):
+            if is_image_generation_request(submitted_text) and not should_prioritize_code_preview(submitted_text, chat_input_files):
                 image_prompt = get_image_generation_prompt(submitted_text)
                 image_spec = build_image_generation_spec(submitted_text, image_prompt)
                 placeholder.info("🎨 이미지 생성 중입니다... 잠시만 기다려주세요.")
